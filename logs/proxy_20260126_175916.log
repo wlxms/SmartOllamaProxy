@@ -1,0 +1,166 @@
+2026-01-26 17:59:16,788 - smart_ollama_proxy - INFO - 日志文件已创建: logs\proxy_20260126_175916.log
+2026-01-26 17:59:16,788 - smart_ollama_proxy - INFO - 详细的JSON日志记录: 禁用
+2026-01-26 17:59:16,817 - smart_ollama_proxy.config - INFO - 配置加载成功: config.yaml
+2026-01-26 17:59:16,818 - smart_ollama_proxy.config - INFO - 加载了 5 个模型组
+2026-01-26 17:59:16,818 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=litellm, backend_mode=litellm_backend, base_url=https://api.deepseek.com/v1
+2026-01-26 17:59:16,819 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: deepseek.litellm_backend
+2026-01-26 17:59:16,820 - smart_ollama_proxy - INFO - 初始化后端路由器: deepseek.litellm_backend
+2026-01-26 17:59:16,821 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=openai, backend_mode=openai_backend, base_url=https://api.deepseek.com/v1
+2026-01-26 17:59:16,821 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: deepseek.openai_backend
+2026-01-26 17:59:16,822 - smart_ollama_proxy - INFO - 初始化后端路由器: deepseek.openai_backend
+2026-01-26 17:59:16,823 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=openai, backend_mode=openai_backend, base_url=https://api.siliconflow.cn/v1
+2026-01-26 17:59:16,824 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: siliconflow.openai_backend
+2026-01-26 17:59:16,824 - smart_ollama_proxy - INFO - 初始化后端路由器: siliconflow.openai_backend
+2026-01-26 17:59:16,825 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=openai, backend_mode=openai_backend, base_url=https://dashscope.aliyuncs.com/compatible-mode/v1
+2026-01-26 17:59:16,826 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: qwen.openai_backend
+2026-01-26 17:59:16,827 - smart_ollama_proxy - INFO - 初始化后端路由器: qwen.openai_backend
+2026-01-26 17:59:16,828 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=openai, backend_mode=openai_backend, base_url=https://coding.dashscope.aliyuncs.com/v1
+2026-01-26 17:59:16,830 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: qwen-coder.openai_backend
+2026-01-26 17:59:16,831 - smart_ollama_proxy - INFO - 初始化后端路由器: qwen-coder.openai_backend
+2026-01-26 17:59:16,831 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=mock, backend_mode=None, base_url=http://mock.local
+2026-01-26 17:59:16,832 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: mock
+2026-01-26 17:59:16,833 - smart_ollama_proxy - INFO - 初始化模拟路由器（备用）
+2026-01-26 17:59:16,857 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=ollama, backend_mode=None, base_url=http://localhost:11434
+2026-01-26 17:59:16,859 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: local
+2026-01-26 17:59:16,861 - smart_ollama_proxy - INFO - 初始化本地Ollama路由器
+2026-01-26 17:59:16,913 - smart_ollama_proxy.config - INFO - 配置加载成功: config.yaml
+2026-01-26 17:59:16,913 - smart_ollama_proxy.config - INFO - 加载了 5 个模型组
+2026-01-26 17:59:16,913 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=litellm, backend_mode=litellm_backend, base_url=https://api.deepseek.com/v1
+2026-01-26 17:59:16,914 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: deepseek.litellm_backend
+2026-01-26 17:59:16,915 - smart_ollama_proxy - INFO - 初始化后端路由器: deepseek.litellm_backend
+2026-01-26 17:59:16,915 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=openai, backend_mode=openai_backend, base_url=https://api.deepseek.com/v1
+2026-01-26 17:59:16,916 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: deepseek.openai_backend
+2026-01-26 17:59:16,917 - smart_ollama_proxy - INFO - 初始化后端路由器: deepseek.openai_backend
+2026-01-26 17:59:16,918 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=openai, backend_mode=openai_backend, base_url=https://api.siliconflow.cn/v1
+2026-01-26 17:59:16,918 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: siliconflow.openai_backend
+2026-01-26 17:59:16,920 - smart_ollama_proxy - INFO - 初始化后端路由器: siliconflow.openai_backend
+2026-01-26 17:59:16,921 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=openai, backend_mode=openai_backend, base_url=https://dashscope.aliyuncs.com/compatible-mode/v1
+2026-01-26 17:59:16,924 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: qwen.openai_backend
+2026-01-26 17:59:16,927 - smart_ollama_proxy - INFO - 初始化后端路由器: qwen.openai_backend
+2026-01-26 17:59:16,929 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=openai, backend_mode=openai_backend, base_url=https://coding.dashscope.aliyuncs.com/v1
+2026-01-26 17:59:16,929 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: qwen-coder.openai_backend
+2026-01-26 17:59:16,930 - smart_ollama_proxy - INFO - 初始化后端路由器: qwen-coder.openai_backend
+2026-01-26 17:59:16,932 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=mock, backend_mode=None, base_url=http://mock.local
+2026-01-26 17:59:16,934 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: mock
+2026-01-26 17:59:16,936 - smart_ollama_proxy - INFO - 初始化模拟路由器（备用）
+2026-01-26 17:59:16,940 - smart_ollama_proxy.backend_router - INFO - 创建后端路由器: 类型=ollama, backend_mode=None, base_url=http://localhost:11434
+2026-01-26 17:59:16,940 - smart_ollama_proxy.backend_router - INFO - 注册后端路由器: local
+2026-01-26 17:59:16,941 - smart_ollama_proxy - INFO - 初始化本地Ollama路由器
+2026-01-26 17:59:16,942 - smart_ollama_proxy - INFO - ============================================================
+2026-01-26 17:59:16,943 - smart_ollama_proxy - INFO - 🤖 智能 Ollama 多模型路由代理
+2026-01-26 17:59:16,943 - smart_ollama_proxy - INFO - ============================================================
+2026-01-26 17:59:16,944 - smart_ollama_proxy - INFO - 📡 代理服务运行在: http://0.0.0.0:11435
+2026-01-26 17:59:16,946 - smart_ollama_proxy - INFO - 🔧 配置文件: config.yaml
+2026-01-26 17:59:16,947 - smart_ollama_proxy - INFO - 📊 已加载模型组: 5 个
+2026-01-26 17:59:16,948 - smart_ollama_proxy - INFO - 🔌 后端路由器: 7 个
+2026-01-26 17:59:16,949 - smart_ollama_proxy - INFO - ✨ 虚拟模型: 8 个
+2026-01-26 17:59:16,953 - smart_ollama_proxy - INFO - 
+2026-01-26 17:59:16,954 - smart_ollama_proxy - INFO - 💡 请在 Copilot 中配置 Ollama 地址为上述代理地址
+2026-01-26 17:59:16,958 - smart_ollama_proxy - INFO - ============================================================
+2026-01-26 17:59:25,374 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:25,375 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:25,376 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 收到流式请求，模型: gpt-oss:120b-cloud, 消息数: 3
+2026-01-26 17:59:25,377 - smart_ollama_proxy - INFO - 收到OpenAI聊天请求，模型: gpt-oss:120b-cloud, 流式: True, 消息数: 3
+2026-01-26 17:59:25,378 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:25,379 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:25,380 - smart_ollama_proxy - INFO - 路由查找耗时: 0.002秒
+2026-01-26 17:59:25,380 - smart_ollama_proxy - INFO - OpenAI聊天路由信息 - 模型: gpt-oss:120b-cloud, 路由器: local, 实际模型: gpt-oss:120b-cloud
+2026-01-26 17:59:25,381 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 转发前耗时: 0.008秒
+2026-01-26 17:59:25,381 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 开始转发到后端
+2026-01-26 17:59:25,382 - smart_ollama_proxy.client_pool - INFO - 创建新的HTTP客户端: http://localhost:11434
+2026-01-26 17:59:25,606 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 后端转发耗时: 0.225秒
+2026-01-26 17:59:25,607 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 总耗时: 0.235秒
+2026-01-26 17:59:25,626 - smart_ollama_proxy.stream_logger - INFO - 流式日志处理器初始化完成，日志目录: logs
+2026-01-26 17:59:25,627 - smart_ollama_proxy.stream_logger - INFO - 输入日志文件: logs\stream_input_20260126_175925.jsonl
+2026-01-26 17:59:25,628 - smart_ollama_proxy.stream_logger - INFO - 输出日志文件: logs\stream_output_20260126_175925.jsonl
+2026-01-26 17:59:25,629 - smart_ollama_proxy.stream_logger - INFO - 线程池大小: 4, 队列大小: 1000
+2026-01-26 17:59:27,406 - httpx - INFO - HTTP Request: POST http://localhost:11434/v1/chat/completions "HTTP/1.1 200 OK"
+2026-01-26 17:59:27,407 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 连接建立耗时: 1.777秒
+2026-01-26 17:59:27,407 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块响应时间: 1.801秒
+2026-01-26 17:59:28,338 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块到全部块接收耗时: 0.931秒
+2026-01-26 17:59:28,339 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 流式请求完成，总耗时: 2.732秒，接收块数: 34，总字节数: 8978
+2026-01-26 17:59:28,947 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:28,948 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:28,950 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 收到流式请求，模型: gpt-oss:120b-cloud, 消息数: 5
+2026-01-26 17:59:28,951 - smart_ollama_proxy - INFO - 收到OpenAI聊天请求，模型: gpt-oss:120b-cloud, 流式: True, 消息数: 5
+2026-01-26 17:59:28,952 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:28,953 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:28,953 - smart_ollama_proxy - INFO - 路由查找耗时: 0.002秒
+2026-01-26 17:59:28,954 - smart_ollama_proxy - INFO - OpenAI聊天路由信息 - 模型: gpt-oss:120b-cloud, 路由器: local, 实际模型: gpt-oss:120b-cloud
+2026-01-26 17:59:28,955 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 转发前耗时: 0.009秒
+2026-01-26 17:59:28,955 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 开始转发到后端
+2026-01-26 17:59:28,956 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 后端转发耗时: 0.001秒
+2026-01-26 17:59:28,957 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 总耗时: 0.011秒
+2026-01-26 17:59:30,465 - httpx - INFO - HTTP Request: POST http://localhost:11434/v1/chat/completions "HTTP/1.1 200 OK"
+2026-01-26 17:59:30,466 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 连接建立耗时: 1.508秒
+2026-01-26 17:59:30,467 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块响应时间: 1.511秒
+2026-01-26 17:59:31,392 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块到全部块接收耗时: 0.925秒
+2026-01-26 17:59:31,393 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 流式请求完成，总耗时: 2.437秒，接收块数: 53，总字节数: 13758
+2026-01-26 17:59:31,439 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:31,440 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:31,442 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 收到流式请求，模型: gpt-oss:120b-cloud, 消息数: 7
+2026-01-26 17:59:31,443 - smart_ollama_proxy - INFO - 收到OpenAI聊天请求，模型: gpt-oss:120b-cloud, 流式: True, 消息数: 7
+2026-01-26 17:59:31,445 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:31,446 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:31,447 - smart_ollama_proxy - INFO - 路由查找耗时: 0.002秒
+2026-01-26 17:59:31,447 - smart_ollama_proxy - INFO - OpenAI聊天路由信息 - 模型: gpt-oss:120b-cloud, 路由器: local, 实际模型: gpt-oss:120b-cloud
+2026-01-26 17:59:31,448 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 转发前耗时: 0.009秒
+2026-01-26 17:59:31,449 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 开始转发到后端
+2026-01-26 17:59:31,450 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 后端转发耗时: 0.001秒
+2026-01-26 17:59:31,451 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 总耗时: 0.012秒
+2026-01-26 17:59:32,994 - httpx - INFO - HTTP Request: POST http://localhost:11434/v1/chat/completions "HTTP/1.1 200 OK"
+2026-01-26 17:59:32,996 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 连接建立耗时: 1.543秒
+2026-01-26 17:59:32,997 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块响应时间: 1.547秒
+2026-01-26 17:59:36,145 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块到全部块接收耗时: 3.148秒
+2026-01-26 17:59:36,146 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 流式请求完成，总耗时: 4.695秒，接收块数: 274，总字节数: 69409
+2026-01-26 17:59:36,188 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:36,189 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:36,191 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 收到流式请求，模型: gpt-oss:120b-cloud, 消息数: 9
+2026-01-26 17:59:36,193 - smart_ollama_proxy - INFO - 收到OpenAI聊天请求，模型: gpt-oss:120b-cloud, 流式: True, 消息数: 9
+2026-01-26 17:59:36,194 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:36,196 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:36,197 - smart_ollama_proxy - INFO - 路由查找耗时: 0.003秒
+2026-01-26 17:59:36,198 - smart_ollama_proxy - INFO - OpenAI聊天路由信息 - 模型: gpt-oss:120b-cloud, 路由器: local, 实际模型: gpt-oss:120b-cloud
+2026-01-26 17:59:36,199 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 转发前耗时: 0.012秒
+2026-01-26 17:59:36,200 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 开始转发到后端
+2026-01-26 17:59:36,201 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 后端转发耗时: 0.001秒
+2026-01-26 17:59:36,202 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 总耗时: 0.015秒
+2026-01-26 17:59:37,665 - httpx - INFO - HTTP Request: POST http://localhost:11434/v1/chat/completions "HTTP/1.1 200 OK"
+2026-01-26 17:59:37,666 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 连接建立耗时: 1.463秒
+2026-01-26 17:59:37,668 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块响应时间: 1.467秒
+2026-01-26 17:59:48,343 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块到全部块接收耗时: 10.675秒
+2026-01-26 17:59:48,344 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 流式请求完成，总耗时: 12.142秒，接收块数: 530，总字节数: 135609
+2026-01-26 17:59:48,379 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:48,379 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:48,380 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 收到流式请求，模型: gpt-oss:120b-cloud, 消息数: 11
+2026-01-26 17:59:48,381 - smart_ollama_proxy - INFO - 收到OpenAI聊天请求，模型: gpt-oss:120b-cloud, 流式: True, 消息数: 11
+2026-01-26 17:59:48,382 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:48,382 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:48,384 - smart_ollama_proxy - INFO - 路由查找耗时: 0.002秒
+2026-01-26 17:59:48,386 - smart_ollama_proxy - INFO - OpenAI聊天路由信息 - 模型: gpt-oss:120b-cloud, 路由器: local, 实际模型: gpt-oss:120b-cloud
+2026-01-26 17:59:48,387 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 转发前耗时: 0.009秒
+2026-01-26 17:59:48,388 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 开始转发到后端
+2026-01-26 17:59:48,388 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 后端转发耗时: 0.001秒
+2026-01-26 17:59:48,389 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 总耗时: 0.010秒
+2026-01-26 17:59:50,369 - httpx - INFO - HTTP Request: POST http://localhost:11434/v1/chat/completions "HTTP/1.1 200 OK"
+2026-01-26 17:59:50,370 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 连接建立耗时: 1.980秒
+2026-01-26 17:59:50,374 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块响应时间: 1.986秒
+2026-01-26 17:59:56,296 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块到全部块接收耗时: 5.922秒
+2026-01-26 17:59:56,297 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 流式请求完成，总耗时: 7.908秒，接收块数: 32，总字节数: 10498
+2026-01-26 17:59:56,423 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:56,424 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:56,425 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 收到流式请求，模型: gpt-oss:120b-cloud, 消息数: 13
+2026-01-26 17:59:56,426 - smart_ollama_proxy - INFO - 收到OpenAI聊天请求，模型: gpt-oss:120b-cloud, 流式: True, 消息数: 13
+2026-01-26 17:59:56,432 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 的路由结果: 0 个后端配置
+2026-01-26 17:59:56,433 - smart_ollama_proxy - INFO - 模型 gpt-oss:120b-cloud 使用本地Ollama
+2026-01-26 17:59:56,434 - smart_ollama_proxy - INFO - 路由查找耗时: 0.002秒
+2026-01-26 17:59:56,434 - smart_ollama_proxy - INFO - OpenAI聊天路由信息 - 模型: gpt-oss:120b-cloud, 路由器: local, 实际模型: gpt-oss:120b-cloud
+2026-01-26 17:59:56,436 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 转发前耗时: 0.014秒
+2026-01-26 17:59:56,437 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 开始转发到后端
+2026-01-26 17:59:56,438 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 后端转发耗时: 0.001秒
+2026-01-26 17:59:56,439 - smart_ollama_proxy - INFO - [OPENAI /v1/chat/completions] 总耗时: 0.016秒
+2026-01-26 17:59:58,457 - httpx - INFO - HTTP Request: POST http://localhost:11434/v1/chat/completions "HTTP/1.1 200 OK"
+2026-01-26 17:59:58,458 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 连接建立耗时: 2.018秒
+2026-01-26 17:59:58,460 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块响应时间: 2.022秒
+2026-01-26 18:00:00,265 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 首块到全部块接收耗时: 1.804秒
+2026-01-26 18:00:00,266 - smart_ollama_proxy.backend_router - INFO - [OllamaBackendRouter] 流式请求完成，总耗时: 3.826秒，接收块数: 184，总字节数: 45468
