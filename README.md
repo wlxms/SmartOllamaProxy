@@ -4,22 +4,6 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-green.svg)](https://fastapi.tiangolo.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## 📑 目录
-
-- [项目概述](#项目概述)
-- [核心特性](#核心特性)
-- [快速开始](#快速开始)
-- [Docker 使用](#docker-使用)
-- [配置说明](#配置说明)
-- [API 接口](#api-接口)
-- [扩展性](#扩展性)
-- [常见问题](#常见问题)
-- [项目文件结构](#项目文件结构)
-- [支持的模型提供商](#支持的模型提供商)
-- [许可证](#许可证)
-- [贡献指南](#贡献指南)
-- [致谢](#致谢)
-
 ## 🎯 项目概述
 
 Smart Ollama Proxy 是一个智能路由代理，为 GitHub Copilot 和其他 AI 客户端提供统一的模型访问接口。它能够将 Ollama API 请求智能路由到不同的 AI 模型后端，包括本地 Ollama 模型和多种云端 AI API（DeepSeek、OpenAI、Claude、Groq 等）。
@@ -113,40 +97,6 @@ uvicorn main:app --host 0.0.0.0 --port 11435 --reload
 - 服务主页: http://localhost:11435
 - 模型列表: http://localhost:11435/api/tags
 - API 文档: http://localhost:11435/docs
-
-## 🐳 Docker 使用
-
-项目提供官方 Docker 镜像，方便在容器环境中快速部署。
-
-```bash
-# 拉取最新镜像（请根据实际镜像仓库地址替换）
-docker pull ghcr.io/yourorg/smart-ollama-proxy:latest
-
-# 运行容器
-docker run -d \
-  -p 11435:11435 \
-  -v $(pwd)/config.yaml:/app/config.yaml \
-  ghcr.io/yourorg/smart-ollama-proxy:latest
-```
-
-### 环境变量（可选）
-
-| 变量名 | 说明 |
-|---|---|
-| `PROXY_HOST` | 代理绑定的主机地址，默认 `0.0.0.0` |
-| `PROXY_PORT` | 代理监听端口，默认 `11435` |
-| `LOG_LEVEL` | 日志级别，`DEBUG`/`INFO`/`WARNING`/`ERROR`，默认 `INFO` |
-
-容器启动时可通过 `-e` 参数传入，例如：
-
-```bash
-docker run -d -p 11435:11435 \
-  -e LOG_LEVEL=DEBUG \
-  -v $(pwd)/config.yaml:/app/config.yaml \
-  ghcr.io/yourorg/smart-ollama-proxy:latest
-```
-
-如需自定义更多配置，请参考后面的 **配置说明** 部分。
 
 ## ⚙️ 配置说明
 

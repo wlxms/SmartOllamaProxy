@@ -216,6 +216,21 @@ class OpenAIBackendRouter(BackendRouter):
             if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
                 stream_logger = get_stream_logger()
                 log_id = stream_logger._generate_log_id()
+                # 记录输入流（请求数据） - 需要从params中提取原始请求数据
+                # 注意：params中可能不包含完整的原始请求数据，这里我们记录params中的关键信息
+                # 实际请求数据在调用_handle_openai_stream时已经处理过，但这里我们至少记录模型和消息
+                request_data_for_log = {
+                    "model": params.get('model'),
+                    "messages": params.get('messages', []),
+                    "stream": True
+                }
+                stream_logger.log_input_stream(
+                    data=request_data_for_log,
+                    router_name="OpenAIBackendRouter",
+                    model_name=params.get('model', 'unknown'),
+                    stream=True,
+                    request_id=log_id
+                )
             
             stream = await self._openai_client.chat.completions.create(**params)  # type: ignore
             # 记录流式开始消息（使用流式日志处理器）
@@ -258,6 +273,12 @@ class OpenAIBackendRouter(BackendRouter):
             first_to_all_time = time.time() - (stream_start + first_chunk_time) if first_chunk_time else 0
             logger.info(f"[{self.__class__.__name__}] 首块到全部块接收耗时: {first_to_all_time:.3f}秒")
             self._print_stream_complete(chunk_count, total_bytes, log_id)
+            
+            # 结束流式会话，组装并打印完整JSON
+            if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None and log_id:
+                stream_logger = get_stream_logger()
+                stream_logger.end_stream(log_id)
+                
             yield "data: [DONE]\n\n"
 
         return StreamingResponse(generate(), media_type="text/event-stream")
@@ -380,6 +401,14 @@ class OpenAIBackendRouter(BackendRouter):
             if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
                 stream_logger = get_stream_logger()
                 log_id = stream_logger._generate_log_id()
+                # 记录输入流（请求数据）
+                stream_logger.log_input_stream(
+                    data=forward_data,
+                    router_name="OpenAIBackendRouter",
+                    model_name=actual_model,
+                    stream=True,
+                    request_id=log_id
+                )
             
             # 使用基类的通用流式处理方法
             response = await self._handle_stream_request(

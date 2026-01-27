@@ -98,6 +98,14 @@ class LiteLLMRouter(BackendRouter):
                         if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
                             stream_logger = get_stream_logger()
                             log_id = stream_logger._generate_log_id()
+                            # 记录输入流（请求数据）
+                            stream_logger.log_input_stream(
+                                data=request_data,
+                                router_name="LiteLLM",
+                                model_name=actual_model,
+                                stream=True,
+                                request_id=log_id
+                            )
                         
                         stream_response = await litellm.acompletion(**params)
 
@@ -172,6 +180,8 @@ class LiteLLMRouter(BackendRouter):
                                 chunk_count=chunk_count,
                                 total_bytes=total_bytes
                             )
+                            # 结束流式会话，组装并打印完整JSON
+                            stream_logger.end_stream(log_id)
                         
                         # 保持控制台输出（向后兼容）
                         if not STREAM_LOGGER_AVAILABLE or not log_id:

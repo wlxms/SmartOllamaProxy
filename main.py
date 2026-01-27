@@ -21,28 +21,39 @@ from routers.backend_router_factory import BackendRouterFactory, BackendManager
 # 配置 logging
 import os
 from datetime import datetime
+from stream_logger import init_global_logger, configure_root_logging, get_global_logger
 
 # 创建logs目录（如果不存在）
 log_dir = "logs"
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 
-# 创建日志文件名（带时间戳）
-log_filename = os.path.join(log_dir, f"proxy_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+# 初始化全局日志记录器
+global_logger = init_global_logger(
+    log_dir=log_dir,
+    max_workers=4,
+    max_queue_size=1000,
+    enabled=True,
+    verbose_json_logging=False,
+    log_level="DEBUG",
+    enable_file_logging=True,
+    enable_console_logging=True
+)
 
-# 配置日志处理器
-handlers = [
-    logging.StreamHandler(sys.stdout),
-    logging.FileHandler(log_filename, encoding='utf-8', mode='a')
-]
+# 配置标准logging模块，将所有日志重定向到GlobalLogger
+configure_root_logging(
+    level=logging.INFO,
+    global_logger=global_logger
+)
 
+# 保持基本的控制台日志配置（用于早期日志记录）
 logging.basicConfig(
-    level=logging.INFO,  # 设置为DEBUG级别
+    level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=handlers
+    handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger("smart_ollama_proxy")
-logger.info(f"日志文件已创建: {log_filename}")
+logger.info(f"全局日志记录器已初始化，日志目录: {log_dir}")
 
 # 设置标准输出编码为 UTF-8（避免文件句柄关闭问题）
 if sys.stdout.encoding.lower() != 'utf-8':

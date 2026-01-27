@@ -95,7 +95,9 @@ class OllamaBackendRouter(BackendRouter):
                 headers=headers,
                 media_type=media_type,
                 is_sse_format=is_sse_format,
-                chunk_end_marker=chunk_end_marker
+                chunk_end_marker=chunk_end_marker,
+                model_name=actual_model,
+                router_name=self.__class__.__name__
             )
         
         # 处理非流式响应
@@ -138,7 +140,9 @@ class OllamaBackendRouter(BackendRouter):
         headers: Dict[str, str],
         media_type: str = "text/event-stream",
         is_sse_format: bool = True,
-        chunk_end_marker: bytes = b'\n\n'
+        chunk_end_marker: bytes = b'\n\n',
+        model_name: str = "",
+        router_name: str = ""
     ) -> StreamingResponse:
         """
         通用的流式请求处理方法（优化版）
@@ -150,6 +154,8 @@ class OllamaBackendRouter(BackendRouter):
             media_type: 媒体类型
             is_sse_format: 是否为SSE格式（data:前缀）
             chunk_end_marker: 块结束标记
+            model_name: 模型名称，用于日志记录
+            router_name: 路由器名称，用于日志记录
             
         Returns:
             StreamingResponse对象
@@ -167,6 +173,14 @@ class OllamaBackendRouter(BackendRouter):
                 if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
                     stream_logger = get_stream_logger()
                     log_id = stream_logger._generate_log_id()
+                    # 记录输入流（请求数据）
+                    stream_logger.log_input_stream(
+                        data=data,
+                        router_name=router_name or self.__class__.__name__,
+                        model_name=model_name or data.get("model", "unknown"),
+                        stream=True,
+                        request_id=log_id
+                    )
                 
                 connect_start = time.time()
                 
@@ -256,6 +270,11 @@ class OllamaBackendRouter(BackendRouter):
                     first_to_all_time = total_time - first_chunk_time if first_chunk_time else 0
                     logger.info(f"[{self.__class__.__name__}] 首块到全部块接收耗时: {first_to_all_time:.3f}秒")
                     logger.info(f"[{self.__class__.__name__}] 流式请求完成，总耗时: {total_time:.3f}秒，接收块数: {chunk_count}，总字节数: {total_bytes_received}")
+                    
+                    # 结束流式会话，组装并打印完整JSON
+                    if STREAM_LOGGER_AVAILABLE and log_id and get_stream_logger is not None:
+                        stream_logger = get_stream_logger()
+                        stream_logger.end_stream(log_id)
                     
                     if is_sse_format:
                         yield b'data: [DONE]\n\n'

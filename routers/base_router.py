@@ -322,30 +322,7 @@ class BackendRouter(abc.ABC):
                                     content_length=content_length
                                 )
                             
-                            # 详细的JSON日志记录（如果启用）
-                            if self.verbose_json_logging:
-                                try:
-                                    # 尝试解析chunk为JSON（可能是SSE格式的Event Stream）
-                                    chunk_str = chunk.decode('utf-8', errors='ignore')
-                                    # 简单的JSON解析检查 - 如果包含 { 和 }，尝试提取JSON部分
-                                    if '{' in chunk_str and '}' in chunk_str:
-                                        # 尝试提取data:后面的JSON部分
-                                        lines = chunk_str.strip().split('\n')
-                                        for line in lines:
-                                            if line.startswith('data: '):
-                                                data_part = line[6:].strip()
-                                                if data_part and data_part != '[DONE]' and '{' in data_part:
-                                                    try:
-                                                        chunk_json_data = json.loads(data_part)
-                                                        logger.debug(f"[{self.__class__.__name__}._handle_stream_request] 输出chunk #{chunk_count}: {json.dumps(chunk_json_data, ensure_ascii=False)}")
-                                                    except:
-                                                        logger.debug(f"[{self.__class__.__name__}._handle_stream_request] 输出chunk #{chunk_count} (原始): {chunk_str[:200]}")
-                                                else:
-                                                    logger.debug(f"[{self.__class__.__name__}._handle_stream_request] 输出chunk #{chunk_count}: {line[:200]}")
-                                    else:
-                                        logger.debug(f"[{self.__class__.__name__}._handle_stream_request] 输出chunk #{chunk_count} (非JSON): {chunk_str[:200]}")
-                                except Exception as e:
-                                    logger.debug(f"[{self.__class__.__name__}._handle_stream_request] 解析输出chunk失败: {e}, chunk: {chunk[:100]}")
+                            # 不再打印每个chunk的详细JSON日志，使用stream_logger记录完整响应
                             
                             yield chunk
 
@@ -357,6 +334,11 @@ class BackendRouter(abc.ABC):
                     # 详细的JSON日志记录总结（如果启用）
                     if self.verbose_json_logging:
                         logger.debug(f"[{self.__class__.__name__}._handle_stream_request] 流式请求完成 - 总块数: {chunk_count}, 总字节: {total_bytes}")
+                    
+                    # 结束流式会话，组装并打印完整JSON
+                    if STREAM_LOGGER_AVAILABLE and log_id and get_stream_logger is not None:
+                        stream_logger = get_stream_logger()
+                        stream_logger.end_stream(log_id)
             except Exception as e:
                 logger.error(f"[{self.__class__.__name__}._handle_stream_request] 流式请求失败: {e}")
                 error_data = json.dumps({"error": str(e)})
@@ -429,7 +411,7 @@ class BackendRouter(abc.ABC):
         else:
             progress_msg = f"\r[{self.__class__.__name__}] {spinner_char} 已接收: {formatted_bytes}, 块 #{chunk_count}"
 
-        # 1. 使用流式日志处理器记录（如果可用）
+        # 1. 使用流式日志处理器记录（如果可用） - 但log_stream_progress已改为空操作，不记录日志
         if STREAM_LOGGER_AVAILABLE and log_id and get_stream_logger is not None:
             stream_logger = get_stream_logger()
             stream_logger.log_stream_progress(
@@ -441,11 +423,9 @@ class BackendRouter(abc.ABC):
                 spinner_idx=spinner_idx
             )
         
-        # 2. 保持原有的控制台输出（向后兼容）
-        # 只有在流式日志处理器不可用或未启用时，才输出到控制台
-        if not STREAM_LOGGER_AVAILABLE or not log_id:
-            sys.stdout.write(progress_msg)
-            sys.stdout.flush()
+        # 2. 总是输出控制台进度显示（保留前台进度）
+        sys.stdout.write(progress_msg)
+        sys.stdout.flush()
 
         return (spinner_idx + 1) % len(spinner)
 
