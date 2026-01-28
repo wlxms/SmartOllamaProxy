@@ -1,9 +1,11 @@
 """
 OpenAI兼容后端路由器
 优先使用OpenAI Python SDK，失败时回退到HTTP请求
+重构版：使用基类组件减少重复代码，保留HTTP回退
 """
 import logging
 import time
+import uuid
 from typing import Dict, Any, Optional
 import httpx
 from fastapi import HTTPException
@@ -12,29 +14,24 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from config_loader import BackendConfig
 from client_pool import client_pool
 from .base_router import BackendRouter
+from routers.core.response_converter import ResponseConverter
 from utils import sanitize_message, json
 
-# 导入流式日志处理器
-try:
-    from stream_logger import get_stream_logger
-    STREAM_LOGGER_AVAILABLE = True
-except ImportError:
-    STREAM_LOGGER_AVAILABLE = False
-    get_stream_logger = None
+# 导入智能日志处理器
+from smart_logger import get_smart_logger
+smart_logger = get_smart_logger()
 
 logger = logging.getLogger("smart_ollama_proxy.backend_router")
 
 
 class OpenAIBackendRouter(BackendRouter):
-    """OpenAI兼容后端路由器"""
+    """OpenAI兼容后端路由器（优先SDK，失败回退HTTP）"""
     
     def __init__(self, backend_config: BackendConfig, verbose_json_logging: bool = False,
                  tool_compression_enabled: bool = True, prompt_compression_enabled: bool = True):
-        super().__init__(backend_config, verbose_json_logging,
+        super().__init__(backend_config, verbose_json_logging,  # type: ignore
                          tool_compression_enabled=tool_compression_enabled,
                          prompt_compression_enabled=prompt_compression_enabled)
-        # 不再自己创建client，改为从ClientPool获取
-        self._client_key = (self.config.base_url.rstrip('/'), self.config.api_key)
         # OpenAI客户端将在第一次请求时初始化
         self._openai_client: Optional[Any] = None
         
@@ -42,6 +39,9 @@ class OpenAIBackendRouter(BackendRouter):
         self._sdk_status = "unknown"  # "unknown", "available", "unavailable"
         self._last_sdk_check = 0  # 上次检查时间戳
         self._sdk_check_interval = 300  # 检查间隔（秒），5分钟
+        
+        # 响应转换器（复用基类的实例）
+        self._converter = ResponseConverter()
     
     async def handle_request(
         self,
@@ -112,6 +112,10 @@ class OpenAIBackendRouter(BackendRouter):
         request_time = time.time() - request_start
         logger.info(f"[OpenAIBackendRouter] HTTP回退请求完成，总耗时: {request_time:.3f}秒")
         return response
+    
+    def convert_to_ollama_format(self, response_data: Any, virtual_model: str) -> Dict[str, Any]:
+        """将OpenAI响应转换为Ollama格式（使用ResponseConverter）"""
+        return self._converter.convert_to_ollama_format(response_data, virtual_model)
     
     async def _ensure_openai_client(self) -> None:
         """确保OpenAI客户端已初始化"""
@@ -212,40 +216,36 @@ class OpenAIBackendRouter(BackendRouter):
             stream_start = time.time()
             
             # 生成日志ID（用于关联流式进度和完成日志）
-            log_id = ""
-            if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
-                stream_logger = get_stream_logger()
-                log_id = stream_logger._generate_log_id()
-                # 记录输入流（请求数据） - 需要从params中提取原始请求数据
-                # 注意：params中可能不包含完整的原始请求数据，这里我们记录params中的关键信息
-                # 实际请求数据在调用_handle_openai_stream时已经处理过，但这里我们至少记录模型和消息
-                request_data_for_log = {
-                    "model": params.get('model'),
-                    "messages": params.get('messages', []),
-                    "stream": True
+            log_id = uuid.uuid4().hex
+            # 记录输入流（请求数据） - 需要从params中提取原始请求数据
+            # 注意：params中可能不包含完整的原始请求数据，这里我们记录params中的关键信息
+            # 实际请求数据在调用_handle_openai_stream时已经处理过，但这里我们至少记录模型和消息
+            request_data_for_log = {
+                "model": params.get('model'),
+                "messages": params.get('messages', []),
+                "stream": True
+            }
+            smart_logger.data.record(
+                key="input",
+                value={
+                    "data": request_data_for_log,
+                    "summary": f"输入流 - 路由器: OpenAIBackendRouter, 模型: {params.get('model', 'unknown')}",
+                    "router": "OpenAIBackendRouter",
+                    "model_name": params.get('model', 'unknown'),
+                    "stream": True,
+                    "log_id": log_id
                 }
-                stream_logger.log_input_stream(
-                    data=request_data_for_log,
-                    router_name="OpenAIBackendRouter",
-                    model_name=params.get('model', 'unknown'),
-                    stream=True,
-                    request_id=log_id
-                )
+            )
             
             stream = await self._openai_client.chat.completions.create(**params)  # type: ignore
             # 记录流式开始消息（使用流式日志处理器）
             model_name = params.get('model', 'unknown')
-            # 优先使用流式日志处理器
-            if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
-                stream_logger = get_stream_logger()
-                stream_logger.log_debug_print(
-                    message=f"开始流式请求 (模型: {model_name})",
-                    router_name="OpenAIBackendRouter",
-                    model_name=model_name
-                )
-            else:
-                # 回退到标准日志输出（向后兼容）
-                logger.info(f"[OpenAIBackendRouter] 开始流式请求 (模型: {model_name})")
+            # 使用智能日志处理器
+            smart_logger.process.info(
+                f"开始流式请求 (模型: {model_name})",
+                router="OpenAIBackendRouter",
+                model_name=model_name
+            )
             chunk_count = 0
             total_bytes = 0
             spinner_idx = 0
@@ -275,9 +275,12 @@ class OpenAIBackendRouter(BackendRouter):
             self._print_stream_complete(chunk_count, total_bytes, log_id)
             
             # 结束流式会话，组装并打印完整JSON
-            if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None and log_id:
-                stream_logger = get_stream_logger()
-                stream_logger.end_stream(log_id)
+            if log_id:
+                smart_logger.process.info(
+                    "流式会话结束",
+                    log_id=log_id,
+                    event="stream_end"
+                )
                 
             yield "data: [DONE]\n\n"
 
@@ -397,18 +400,19 @@ class OpenAIBackendRouter(BackendRouter):
             logger.debug(f"[OpenAIBackendRouter._handle_with_http] 开始流式请求")
             
             # 生成日志ID（用于关联流式进度和完成日志）
-            log_id = ""
-            if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
-                stream_logger = get_stream_logger()
-                log_id = stream_logger._generate_log_id()
-                # 记录输入流（请求数据）
-                stream_logger.log_input_stream(
-                    data=forward_data,
-                    router_name="OpenAIBackendRouter",
-                    model_name=actual_model,
-                    stream=True,
-                    request_id=log_id
-                )
+            log_id = uuid.uuid4().hex
+            # 记录输入流（请求数据）
+            smart_logger.data.record(
+                key="input",
+                value={
+                    "data": forward_data,
+                    "summary": f"输入流 - 路由器: OpenAIBackendRouter, 模型: {actual_model}",
+                    "router": "OpenAIBackendRouter",
+                    "model_name": actual_model,
+                    "stream": True,
+                    "log_id": log_id
+                }
+            )
             
             # 使用基类的通用流式处理方法
             response = await self._handle_stream_request(
@@ -427,106 +431,3 @@ class OpenAIBackendRouter(BackendRouter):
             request_time = time.time() - request_start
             logger.info(f"[OpenAIBackendRouter._handle_with_http] JSON请求完成，耗时: {request_time:.3f}秒")
             return response
-    
-    def convert_to_ollama_format(self, response_data: Any, virtual_model: str) -> Dict[str, Any]:
-        """将OpenAI响应转换为Ollama格式"""
-        if isinstance(response_data, dict):
-            openai_result = response_data
-        elif hasattr(response_data, 'body'):
-            # JSONResponse对象
-            body = response_data.body
-            if isinstance(body, bytes):
-                openai_result = json.loads(body.decode())
-            else:
-                openai_result = body
-        else:
-            raise ValueError(f"无法处理的响应类型: {type(response_data)}")
-        
-        # 转换为Ollama格式
-        ollama_result = {
-            "model": virtual_model,
-            "response": openai_result["choices"][0]["message"]["content"],
-            "done": True,
-            "total_duration": openai_result.get("usage", {}).get("total_tokens", 0) * 50_000_000,
-        }
-        return ollama_result
-    
-    async def _handle_json_request(
-        self,
-        client: httpx.AsyncClient,
-        url: str,
-        headers: Dict[str, str],
-        json_data: Dict[str, Any]
-    ) -> JSONResponse:
-        """处理JSON请求"""
-        json_start = time.time()
-        
-        try:
-            logger.debug(f"[{self.__class__.__name__}._handle_json_request] 开始HTTP JSON请求")
-            
-            # 优化JSON序列化 - 使用更高效的参数
-            try:
-                json_str = json.dumps(json_data, ensure_ascii=False, separators=(',', ':'))
-            except (UnicodeEncodeError, ValueError) as e:
-                logger.warning(f"JSON 序列化失败，尝试清理数据: {e}")
-                # 如果序列化失败，尝试清理数据后重试
-                cleaned_data = self._clean_request_data(json_data)
-                json_str = json.dumps(cleaned_data, ensure_ascii=False, separators=(',', ':'))
-            
-            # 使用传入的客户端和请求头
-            response = await client.post(
-                url,
-                content=json_str.encode('utf-8'),
-                headers=headers
-            )
-            request_time = time.time() - json_start
-            
-            logger.info(f"[{self.__class__.__name__}._handle_json_request] HTTP请求完成，耗时: {request_time:.3f}秒")
-            logger.debug(f"[{self.__class__.__name__}._handle_json_request] 响应状态码: {response.status_code}")
-            logger.debug(f"[{self.__class__.__name__}._handle_json_request] 响应头: {dict(response.headers)}")
-            
-            if response.status_code != 200:
-                error_text = response.text
-                logger.error(f"[{self.__class__.__name__}._handle_json_request] 错误响应: {error_text}")
-                raise HTTPException(status_code=response.status_code, detail=error_text)
-            
-            response_data = response.json()
-            
-            # 记录响应数据（截断长内容）
-            if self.verbose_json_logging:
-                response_preview = json.dumps(response_data, ensure_ascii=False, indent=2)
-                if len(response_preview) > 2000:
-                    response_preview = response_preview[:2000] + "\n... (响应内容过长，已截断)"
-                logger.debug(f"[{self.__class__.__name__}._handle_json_request] 响应数据:")
-                logger.debug(response_preview)
-            else:
-                logger.debug(f"[{self.__class__.__name__}._handle_json_request] 响应数据已接收，详细JSON日志已禁用")
-            
-            total_time = time.time() - json_start
-            logger.info(f"[{self.__class__.__name__}._handle_json_request] JSON请求总耗时: {total_time:.3f}秒")
-            
-            return JSONResponse(content=response_data)
-        except Exception as e:
-            total_time = time.time() - json_start
-            logger.error(f"[{self.__class__.__name__}._handle_json_request] JSON请求失败: {e} (耗时: {total_time:.3f}秒)")
-            raise HTTPException(status_code=500, detail=str(e))
-    
-    def _clean_request_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """清理请求数据，处理可能的序列化问题"""
-        cleaned = data.copy()
-        
-        # 递归清理嵌套结构中的字符串
-        def clean_value(value):
-            if isinstance(value, str):
-                return sanitize_message({"content": value})["content"]
-            elif isinstance(value, dict):
-                return {k: clean_value(v) for k, v in value.items()}
-            elif isinstance(value, list):
-                return [clean_item for clean_item in [clean_value(item) for item in value]]
-            else:
-                return value
-        
-        from typing import cast
-        result = clean_value(cleaned)
-        # 确保返回类型为字典
-        return cast(Dict[str, Any], result)

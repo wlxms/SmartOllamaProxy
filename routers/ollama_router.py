@@ -1,11 +1,13 @@
 """
 Ollama后端路由器
 用于本地Ollama服务
+重构版：使用基类组件减少重复代码
 """
 import logging
 import time
+import uuid
 from utils import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import httpx
 from fastapi import HTTPException
@@ -15,29 +17,25 @@ from config_loader import BackendConfig
 from client_pool import client_pool
 from .base_router import BackendRouter
 
-# 导入流式日志处理器
-try:
-    from stream_logger import get_stream_logger
-    STREAM_LOGGER_AVAILABLE = True
-except ImportError:
-    STREAM_LOGGER_AVAILABLE = False
-    get_stream_logger = None
+# 导入智能日志处理器
+from smart_logger import get_smart_logger
+smart_logger = get_smart_logger()
 
 logger = logging.getLogger("smart_ollama_proxy.backend_router")
 
 
 class OllamaBackendRouter(BackendRouter):
-    """Ollama后端路由器（用于本地Ollama）"""
+    """Ollama后端路由器（用于本地Ollama，重构版）"""
     
     def __init__(self, backend_config: BackendConfig, base_url: str = "http://localhost:11434",
-                 tool_compression_enabled: bool = True, prompt_compression_enabled: bool = True):
-        super().__init__(backend_config,
+                 verbose_json_logging: bool = False, tool_compression_enabled: bool = True,
+                 prompt_compression_enabled: bool = True):
+        super().__init__(backend_config, verbose_json_logging,  # type: ignore
                          tool_compression_enabled=tool_compression_enabled,
                          prompt_compression_enabled=prompt_compression_enabled)
         self.base_url = base_url
-        # 不再自己创建client，改为从ClientPool获取
+        # HTTP客户端（延迟初始化）
         self._client: Optional[httpx.AsyncClient] = None
-        self._client_key = (self.base_url.rstrip('/'), None)
     
     async def handle_request(
         self,
@@ -169,18 +167,19 @@ class OllamaBackendRouter(BackendRouter):
                 logger.debug(f"[{self.__class__.__name__}] 开始通用流式请求（优化版）")
                 
                 # 生成日志ID（用于关联流式进度和完成日志）
-                log_id = ""
-                if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
-                    stream_logger = get_stream_logger()
-                    log_id = stream_logger._generate_log_id()
-                    # 记录输入流（请求数据）
-                    stream_logger.log_input_stream(
-                        data=data,
-                        router_name=router_name or self.__class__.__name__,
-                        model_name=model_name or data.get("model", "unknown"),
-                        stream=True,
-                        request_id=log_id
-                    )
+                log_id = uuid.uuid4().hex
+                # 记录输入流（请求数据）
+                smart_logger.data.record(
+                    key="input",
+                    value={
+                        "data": data,
+                        "summary": f"输入流 - 路由器: {router_name or self.__class__.__name__}, 模型: {model_name or data.get('model', 'unknown')}",
+                        "router": router_name or self.__class__.__name__,
+                        "model_name": model_name or data.get("model", "unknown"),
+                        "stream": True,
+                        "log_id": log_id
+                    }
+                )
                 
                 connect_start = time.time()
                 
@@ -272,9 +271,12 @@ class OllamaBackendRouter(BackendRouter):
                     logger.info(f"[{self.__class__.__name__}] 流式请求完成，总耗时: {total_time:.3f}秒，接收块数: {chunk_count}，总字节数: {total_bytes_received}")
                     
                     # 结束流式会话，组装并打印完整JSON
-                    if STREAM_LOGGER_AVAILABLE and log_id and get_stream_logger is not None:
-                        stream_logger = get_stream_logger()
-                        stream_logger.end_stream(log_id)
+                    if log_id:
+                        smart_logger.process.info(
+                            "流式会话结束",
+                            log_id=log_id,
+                            event="stream_end"
+                        )
                     
                     if is_sse_format:
                         yield b'data: [DONE]\n\n'

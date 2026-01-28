@@ -8,6 +8,9 @@ from typing import Dict, Any, Optional, List, Tuple
 import httpx
 import asyncio
 
+# Unified logger imports (migrated to smart_logger)
+from smart_logger import LogConfig, LogType, LogLevel
+
 logger = logging.getLogger("smart_ollama_proxy.config")
 
 
@@ -334,6 +337,92 @@ class ConfigLoader:
     def get_http_compression_enabled(self) -> bool:
         """获取是否启用HTTP传输压缩（gzip/deflate）"""
         return self.proxy_config.get("http_compression_enabled", True)
+    
+    def get_logging_config(self) -> Dict[str, Any]:
+        """获取日志配置
+        
+        Returns:
+            日志配置字典，包含智能日志系统的所有配置
+        """
+        # 从proxy配置中获取日志配置
+        logging_config = self.proxy_config.get("logging", {})
+        
+        # 设置默认值
+        default_config = {
+            "enabled": True,
+            "log_dir": "logs",
+            "log_level": self.proxy_config.get("log_level", "INFO"),
+            "verbose_json_logging": self.proxy_config.get("verbose_json_logging", False),
+            "log_types": {
+                "process": {
+                    "enabled": True,
+                    "save_to_file": True,
+                    "show_in_console": True,
+                    "async_mode": True
+                },
+                "performance": {
+                    "enabled": True,
+                    "save_to_file": True,
+                    "show_in_console": True,
+                    "async_mode": False  # 性能日志需要即时性
+                },
+                "data": {
+                    "enabled": True,
+                    "save_to_file": True,
+                    "show_in_console": False,
+                    "async_mode": True
+                },
+                "progress": {
+                    "enabled": True,
+                    "save_to_file": False,  # 进度条不保存
+                    "show_in_console": True,
+                    "async_mode": False  # 进度显示需要即时
+                }
+            },
+            "performance": {
+                "max_queue_size": 1000,
+                "max_workers": 4,
+                "flush_interval": 1.0
+            },
+            "progress": {
+                "width": 50,
+                "fill_char": "█",
+                "empty_char": "░",
+                "show_percentage": True,
+                "show_elapsed_time": True
+            },
+            "file_rotation": {
+                "max_size_mb": 100,
+                "backup_count": 5
+            }
+        }
+        
+        # 深度合并配置：用户配置覆盖默认配置
+        def deep_merge(default, user):
+            if not isinstance(default, dict) or not isinstance(user, dict):
+                return user if user is not None else default
+            
+            merged = default.copy()
+            for key, value in user.items():
+                if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+                    merged[key] = deep_merge(merged[key], value)
+                else:
+                    merged[key] = value
+            return merged
+        
+        return deep_merge(default_config, logging_config)
+    
+    def get_unified_logger_config(self) -> LogConfig:
+        """获取统一日志记录器的配置（已迁移到smart_logger）
+        
+        Returns:
+            LogConfig 配置对象
+        """
+        # 获取现有的日志配置
+        logging_config = self.get_logging_config()
+        
+        # 创建并返回LogConfig对象
+        return LogConfig(logging_config)
     
     def get_local_ollama_config(self) -> Dict[str, Any]:
         """获取本地Ollama配置"""

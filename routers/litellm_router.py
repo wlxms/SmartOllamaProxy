@@ -1,9 +1,11 @@
 """
 LiteLLM后端路由器
 专门用于LiteLLM配置，直接使用LiteLLM SDK处理请求
+重构版：使用基类组件减少重复代码
 """
 import logging
 import time
+import uuid
 from typing import Dict, Any
 from utils import json, sanitize_message
 
@@ -12,32 +14,30 @@ from fastapi import HTTPException
 
 from config_loader import BackendConfig
 from .base_router import BackendRouter
+from routers.core.response_converter import ResponseConverter
 
-# 导入流式日志处理器
-try:
-    from stream_logger import get_stream_logger
-    STREAM_LOGGER_AVAILABLE = True
-except ImportError:
-    STREAM_LOGGER_AVAILABLE = False
-    get_stream_logger = None
+# 导入智能日志处理器
+from smart_logger import get_smart_logger
+smart_logger = get_smart_logger()
 
 logger = logging.getLogger("smart_ollama_proxy.backend_router")
 
 
 class LiteLLMRouter(BackendRouter):
-    """LiteLLM后端路由器（专门用于LiteLLM配置）"""
+    """LiteLLM后端路由器（专门用于LiteLLM配置，重构版）"""
     
     def __init__(self, backend_config: BackendConfig, verbose_json_logging: bool = False,
                  tool_compression_enabled: bool = True, prompt_compression_enabled: bool = True):
-        super().__init__(backend_config, verbose_json_logging,
+        super().__init__(backend_config, verbose_json_logging,  # type: ignore
                          tool_compression_enabled=tool_compression_enabled,
                          prompt_compression_enabled=prompt_compression_enabled)
-        # 不再自己创建client，改为从ClientPool获取
-        self._client_key = (self.config.base_url.rstrip('/'), self.config.api_key)
-        # JSON转换方法缓存优化
+        # JSON转换方法缓存优化（保留性能优化）
         self._chunk_conversion_cache = {}  # chunk_type -> conversion_method_index
         self._response_conversion_cache = {}  # response_type -> conversion_method_index
         self._conversion_stats = {}  # method_name -> success/failure counts
+        
+        # 响应转换器
+        self._converter = ResponseConverter()
     
     async def handle_request(
         self,
@@ -76,52 +76,39 @@ class LiteLLMRouter(BackendRouter):
                 # 流式处理
                 async def generate():
                     # 进度显示初始化
-                    spinner = ['|', '/', '-', '\\']
                     spinner_idx = 0
                     chunk_count = 0
                     total_bytes = 0
-
-                    # 字节数格式化函数
-                    def format_bytes(bytes_count: float) -> str:
-                        """格式化字节数为易读格式"""
-                        for unit in ['B', 'KB', 'MB', 'GB']:
-                            if bytes_count < 1024.0:
-                                return f"{bytes_count:.1f}{unit}"
-                            bytes_count /= 1024.0
-                        return f"{bytes_count:.1f}TB"
 
                     try:
                         stream_start = time.time()
                         
                         # 生成日志ID（用于关联流式进度和完成日志）
-                        log_id = ""
-                        if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
-                            stream_logger = get_stream_logger()
-                            log_id = stream_logger._generate_log_id()
-                            # 记录输入流（请求数据）
-                            stream_logger.log_input_stream(
-                                data=request_data,
-                                router_name="LiteLLM",
-                                model_name=actual_model,
-                                stream=True,
-                                request_id=log_id
-                            )
+                        log_id = uuid.uuid4().hex
+                        # 记录输入流（请求数据）
+                        smart_logger.data.record(
+                            key="input",
+                            value={
+                                "data": request_data,
+                                "summary": f"输入流 - 路由器: LiteLLM, 模型: {actual_model}",
+                                "router": "LiteLLM",
+                                "model_name": actual_model,
+                                "stream": True,
+                                "log_id": log_id
+                            }
+                        )
                         
                         stream_response = await litellm.acompletion(**params)
 
-                        # 记录流式开始消息（使用流式日志处理器）
-                        if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
-                            stream_logger = get_stream_logger()
-                            stream_logger.log_debug_print(
-                                message=f"开始流式请求 (模型: {actual_model})",
-                                router_name="LiteLLM",
-                                model_name=actual_model
-                            )
-                        else:
-                            # 回退到标准日志输出（向后兼容）
-                            logger.info(f"[LiteLLM] 开始流式请求 (模型: {actual_model})")
+                        # 记录流式开始消息（使用智能日志处理器）
+                        smart_logger.process.info(
+                            f"开始流式请求 (模型: {actual_model})",
+                            router="LiteLLM",
+                            model_name=actual_model
+                        )
 
                         first_chunk_time = None
+                        content_length = None  # LiteLLM SDK 不提供内容长度
 
                         async for chunk in stream_response:  # type: ignore
                             # 记录首块响应时间
@@ -129,8 +116,6 @@ class LiteLLMRouter(BackendRouter):
                                 first_chunk_time = time.time() - stream_start
                                 logger.info(f"[{self.__class__.__name__}] 首块响应时间: {first_chunk_time:.3f}秒")
 
-                            # 更新进度显示
-                            spinner_idx = (spinner_idx + 1) % len(spinner)
                             chunk_count += 1
 
                             # 安全地将chunk转换为字典，处理StreamingChoices等特殊类型
@@ -141,27 +126,10 @@ class LiteLLMRouter(BackendRouter):
                             chunk_bytes = len(chunk_json.encode('utf-8'))
                             total_bytes += chunk_bytes
 
-                            # 格式化字节数显示
-                            formatted_bytes = format_bytes(total_bytes)
-
-                            # 记录流式进度（使用流式日志处理器）
-                            if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None and log_id:
-                                stream_logger = get_stream_logger()
-                                stream_logger.log_stream_progress(
-                                    log_id=log_id,
-                                    router_name="LiteLLM",
-                                    chunk_count=chunk_count,
-                                    total_bytes=total_bytes,
-                                    content_length=None,  # LiteLLM不提供内容长度
-                                    spinner_idx=spinner_idx
-                                )
-                            
-                            # 保持控制台输出（向后兼容）
-                            if not STREAM_LOGGER_AVAILABLE or not log_id:
-                                # 使用sys.stdout.write来保持进度条效果
-                                import sys
-                                sys.stdout.write(f"\r[LiteLLM] 流式进度 {spinner[spinner_idx]} 已接收块: {chunk_count}, 字节: {formatted_bytes}")
-                                sys.stdout.flush()
+                            # 使用基类的进度显示方法
+                            spinner_idx = self._print_stream_progress(
+                                chunk_count, total_bytes, content_length, spinner_idx, log_id
+                            )
 
                             # 转换为 SSE 格式
                             yield f"data: {chunk_json}\n\n"
@@ -169,61 +137,63 @@ class LiteLLMRouter(BackendRouter):
                         # 流式完成
                         first_to_all_time = time.time() - (stream_start + first_chunk_time) if first_chunk_time else 0
                         logger.info(f"[{self.__class__.__name__}] 首块到全部块接收耗时: {first_to_all_time:.3f}秒")
-                        formatted_total_bytes = format_bytes(total_bytes)
                         
-                        # 记录流式完成（使用流式日志处理器）
-                        if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None and log_id:
-                            stream_logger = get_stream_logger()
-                            stream_logger.log_stream_complete(
-                                log_id=log_id,
-                                router_name="LiteLLM",
-                                chunk_count=chunk_count,
-                                total_bytes=total_bytes
+                        # 使用基类的完成显示方法
+                        self._print_stream_complete(chunk_count, total_bytes, log_id)
+                        
+                        # 记录流式完成（使用智能日志处理器）
+                        if log_id:
+                            smart_logger.performance.record(
+                                key="stream_complete",
+                                value={
+                                    "metric": "stream_complete",
+                                    "value": total_bytes,
+                                    "unit": "bytes",
+                                    "router": "LiteLLM",
+                                    "log_id": log_id,
+                                    "chunk_count": chunk_count,
+                                    "total_bytes": total_bytes
+                                }
                             )
                             # 结束流式会话，组装并打印完整JSON
-                            stream_logger.end_stream(log_id)
+                            smart_logger.process.info(
+                                "流式会话结束",
+                                log_id=log_id,
+                                event="stream_end"
+                            )
                         
-                        # 保持控制台输出（向后兼容）
-                        if not STREAM_LOGGER_AVAILABLE or not log_id:
-                            # 使用sys.stdout.write来保持进度条效果
-                            import sys
-                            sys.stdout.write(f"\r[LiteLLM] 流式完成 ✓ 总块数: {chunk_count}, 总字节: {formatted_total_bytes}                          \n")
-                            sys.stdout.flush()
-                        elif STREAM_LOGGER_AVAILABLE and log_id:
-                            # 如果使用流式日志处理器，仍然需要换行来分隔输出
-                            import sys
-                            sys.stdout.write("\n")
-                            sys.stdout.flush()
                         yield "data: [DONE]\n\n"
                     except Exception as e:
                         # 记录错误状态，包含已接收的数据统计
                         if chunk_count > 0:
+                            # 格式化字节数显示
+                            def format_bytes(bytes_count: float) -> str:
+                                """格式化字节数为易读格式"""
+                                for unit in ['B', 'KB', 'MB', 'GB']:
+                                    if bytes_count < 1024.0:
+                                        return f"{bytes_count:.1f}{unit}"
+                                    bytes_count /= 1024.0
+                                return f"{bytes_count:.1f}TB"
+                            
                             formatted_bytes = format_bytes(total_bytes)
                             error_msg = f"流式失败 ✗ 错误: {type(e).__name__}, 已接收: {chunk_count}块, {formatted_bytes}"
                         else:
                             error_msg = f"流式失败 ✗ 错误: {type(e).__name__}"
                         
-                        # 记录错误日志（使用流式日志处理器）
-                        if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
-                            stream_logger = get_stream_logger()
-                            stream_logger.log_debug_print(
-                                message=error_msg,
-                                router_name="LiteLLM",
-                                model_name=actual_model
-                            )
+                        # 记录错误日志（使用智能日志处理器）
+                        smart_logger.process.error(
+                            error_msg,
+                            router="LiteLLM",
+                            model_name=actual_model
+                        )
                         
                         # 保持控制台输出（向后兼容）
-                        if not STREAM_LOGGER_AVAILABLE or not get_stream_logger:
-                            import sys
-                            if chunk_count > 0:
-                                sys.stdout.write(f"\r[LiteLLM] {error_msg}                      \n")
-                            else:
-                                sys.stdout.write(f"\r[LiteLLM] {error_msg}                      \n")
-                            sys.stdout.flush()
+                        import sys
+                        if chunk_count > 0:
+                            sys.stdout.write(f"\r[LiteLLM] {error_msg}                      \n")
                         else:
-                            import sys
-                            sys.stdout.write("\n")
-                            sys.stdout.flush()
+                            sys.stdout.write(f"\r[LiteLLM] {error_msg}                      \n")
+                        sys.stdout.flush()
                         
                         logger.error(f"LiteLLM 流式请求失败: {e}")
                         error_data = json.dumps({"error": str(e)})
@@ -243,6 +213,10 @@ class LiteLLMRouter(BackendRouter):
         except Exception as e:
             logger.error(f"LiteLLM 请求失败: {e}")
             raise HTTPException(status_code=500, detail=f"LiteLLM请求失败: {str(e)}")
+    
+    def convert_to_ollama_format(self, response_data: Any, virtual_model: str) -> Dict[str, Any]:
+        """将OpenAI响应转换为Ollama格式（使用ResponseConverter）"""
+        return self._converter.convert_to_ollama_format(response_data, virtual_model)
     
     def _build_litellm_params(
         self,
@@ -308,7 +282,7 @@ class LiteLLMRouter(BackendRouter):
             support_thinking: 是否支持 thinking 能力
             
         Returns:
-            处理后的请求数据
+             处理后的请求数据
         """
         if not support_thinking:
             return request_data
@@ -412,175 +386,46 @@ class LiteLLMRouter(BackendRouter):
             # 如果无法推断，返回空字符串
             return ""
     
-    def convert_to_ollama_format(self, response_data: Any, virtual_model: str) -> Dict[str, Any]:
-        """将OpenAI响应转换为Ollama格式"""
-        if isinstance(response_data, dict):
-            openai_result = response_data
-        elif hasattr(response_data, 'body'):
-            # JSONResponse对象
-            body = response_data.body
-            if isinstance(body, bytes):
-                openai_result = json.loads(body.decode())
-            else:
-                openai_result = body
-        else:
-            raise ValueError(f"无法处理的响应类型: {type(response_data)}")
-        
-        # 转换为Ollama格式
-        ollama_result = {
-            "model": virtual_model,
-            "response": openai_result["choices"][0]["message"]["content"],
-            "done": True,
-            "total_duration": openai_result.get("usage", {}).get("total_tokens", 0) * 50_000_000,
-        }
-        return ollama_result
-    
     def _safe_chunk_to_dict(self, chunk: Any) -> Dict[str, Any]:
-        """安全地将LiteLLM流式chunk转换为字典，带有方法缓存优化
+        """将LiteLLM流式chunk转换为字典（简化版，无多方法回退）"""
+        # 如果已经是字典，直接返回
+        if isinstance(chunk, dict):
+            return chunk
         
-        LiteLLM返回的chunk可能包含不可JSON序列化的对象，如StreamingChoices。
-        此方法尝试多种方式转换为可序列化的字典，并缓存每种chunk类型最有效的转换方法。
-        """
+        # 尝试常用转换方法
+        if hasattr(chunk, 'to_dict'):
+            return chunk.to_dict()
+        if hasattr(chunk, 'dict'):
+            return chunk.dict()
+        if hasattr(chunk, 'model_dump'):
+            return chunk.model_dump()
+        
+        # 最后尝试vars
         try:
-            # 如果chunk已经是字典，直接返回（最快路径）
-            if isinstance(chunk, dict):
-                return chunk
-            
-            # 获取chunk类型名称用于缓存
-            chunk_type = type(chunk).__name__
-            
-            # 检查是否有缓存的转换方法
-            cached_method_idx = self._chunk_conversion_cache.get(chunk_type)
-            if cached_method_idx is not None:
-                # 尝试使用缓存的转换方法
-                conversion_methods = self._get_conversion_methods()
-                method_name, method_func = conversion_methods[cached_method_idx]
-                try:
-                    result = method_func(chunk)
-                    # 更新成功统计
-                    self._conversion_stats[method_name] = self._conversion_stats.get(method_name, 0) + 1
-                    return result
-                except (TypeError, ValueError, AttributeError):
-                    # 缓存的转换方法失败，从缓存中移除并继续尝试其他方法
-                    del self._chunk_conversion_cache[chunk_type]
-                    logger.debug(f"缓存的转换方法 {method_name} 失败，重新检测最佳方法")
-            
-            # 获取转换方法列表（按优先级排序）
-            conversion_methods = self._get_conversion_methods()
-            
-            # 尝试每个转换方法
-            for idx, (method_name, method_func) in enumerate(conversion_methods):
-                try:
-                    # 特殊处理：lambda返回None表示方法不适用（如缺少属性）
-                    if method_name == "to_dict":
-                        if not hasattr(chunk, 'to_dict'):
-                            continue
-                    elif method_name == "pydantic_dict":
-                        if not hasattr(chunk, 'dict'):
-                            continue
-                    
-                    result = method_func(chunk)
-                    # 缓存成功的转换方法
-                    self._chunk_conversion_cache[chunk_type] = idx
-                    # 更新统计
-                    self._conversion_stats[method_name] = self._conversion_stats.get(method_name, 0) + 1
-                    logger.debug(f"为 {chunk_type} 缓存转换方法: {method_name}")
-                    return result
-                except (TypeError, ValueError, AttributeError):
-                    # 当前方法失败，继续尝试下一个
-                    continue
-            
-            # 所有方法都失败，使用后备方案
-            logger.warning(f"所有转换方法都失败，使用后备方案，chunk类型: {chunk_type}")
-            return self._fallback_chunk_conversion(chunk)
-                
-        except Exception as e:
-            logger.error(f"安全转换chunk失败: {e}")
-            return {"_error": f"转换失败: {str(e)}"}
-    
-    def _get_conversion_methods(self):
-        """获取转换方法列表（按优先级排序）"""
-        return [
-            ("to_dict", lambda c: c.to_dict()),
-            ("dict", lambda c: dict(c)),
-            ("pydantic_dict", lambda c: c.dict()),
-            ("vars", lambda c: vars(c)),
-            ("json_parse", self._convert_via_json_string),
-        ]
-    
-    def _convert_via_json_string(self, chunk: Any) -> Dict[str, Any]:
-        """通过JSON字符串转换chunk（后备方法）"""
-        import json as json_module
-        # 先转换为字符串，然后解析回字典
-        str_repr = str(chunk)
-        # 尝试解析为JSON，如果失败则创建简单字典
-        try:
-            return json_module.loads(str_repr)
-        except:
-            # 创建包含基本信息的字典
-            return {"_type": type(chunk).__name__, "_repr": str_repr}
-    
-    def _fallback_chunk_conversion(self, chunk: Any) -> Dict[str, Any]:
-        """chunk转换的后备方案，当所有方法都失败时使用"""
-        logger.warning(f"无法转换chunk为字典: chunk类型: {type(chunk).__name__}")
-        # 返回最小化信息字典
-        return {"_error": "无法序列化chunk", "_type": type(chunk).__name__}
+            return vars(chunk)
+        except TypeError:
+            # 如果vars失败，使用字符串表示
+            logger.warning(f"无法转换chunk为字典: {type(chunk).__name__}")
+            return {"_type": type(chunk).__name__, "_repr": str(chunk)}
     
     def _safe_response_to_dict(self, response: Any) -> Dict[str, Any]:
-        """安全地将LiteLLM响应转换为字典，带有方法缓存优化"""
+        """将LiteLLM响应转换为字典（简化版，无多方法回退）"""
+        # 如果已经是字典，直接返回
+        if isinstance(response, dict):
+            return response
+        
+        # 尝试常用转换方法
+        if hasattr(response, 'to_dict'):
+            return response.to_dict()
+        if hasattr(response, 'dict'):
+            return response.dict()
+        if hasattr(response, 'model_dump'):
+            return response.model_dump()
+        
+        # 最后尝试vars
         try:
-            # 如果响应已经是字典，直接返回（最快路径）
-            if isinstance(response, dict):
-                return response
-            
-            # 获取响应类型名称用于缓存
-            response_type = type(response).__name__
-            
-            # 检查是否有缓存的转换方法
-            cached_method_idx = self._response_conversion_cache.get(response_type)
-            if cached_method_idx is not None:
-                # 尝试使用缓存的转换方法
-                conversion_methods = self._get_conversion_methods()
-                method_name, method_func = conversion_methods[cached_method_idx]
-                try:
-                    result = method_func(response)
-                    # 更新成功统计
-                    self._conversion_stats[method_name] = self._conversion_stats.get(method_name, 0) + 1
-                    return result
-                except (TypeError, ValueError, AttributeError):
-                    # 缓存的转换方法失败，从缓存中移除并继续尝试其他方法
-                    del self._response_conversion_cache[response_type]
-                    logger.debug(f"缓存的响应转换方法 {method_name} 失败，重新检测最佳方法")
-            
-            # 获取转换方法列表（按优先级排序）
-            conversion_methods = self._get_conversion_methods()
-            
-            # 尝试每个转换方法
-            for idx, (method_name, method_func) in enumerate(conversion_methods):
-                try:
-                    # 特殊处理：lambda返回None表示方法不适用（如缺少属性）
-                    if method_name == "to_dict":
-                        if not hasattr(response, 'to_dict'):
-                            continue
-                    elif method_name == "pydantic_dict":
-                        if not hasattr(response, 'dict'):
-                            continue
-                    
-                    result = method_func(response)
-                    # 缓存成功的转换方法
-                    self._response_conversion_cache[response_type] = idx
-                    # 更新统计
-                    self._conversion_stats[method_name] = self._conversion_stats.get(method_name, 0) + 1
-                    logger.debug(f"为响应 {response_type} 缓存转换方法: {method_name}")
-                    return result
-                except (TypeError, ValueError, AttributeError):
-                    # 当前方法失败，继续尝试下一个
-                    continue
-            
-            # 所有方法都失败，使用后备方案
-            logger.warning(f"所有响应转换方法都失败，使用字符串表示，响应类型: {response_type}")
-            return {"_type": response_type, "_repr": str(response)}
-                
-        except Exception as e:
-            logger.error(f"安全转换响应失败: {e}")
-            return {"_error": f"转换失败: {str(e)}"}
+            return vars(response)
+        except TypeError:
+            # 如果vars失败，使用字符串表示
+            logger.warning(f"无法转换响应为字典: {type(response).__name__}")
+            return {"_type": type(response).__name__, "_repr": str(response)}

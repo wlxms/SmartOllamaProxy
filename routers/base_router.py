@@ -1,11 +1,13 @@
 """
 Backend路由器基类
 提供统一的接口来处理不同类型的后端请求，提高扩展性
+重构版本：使用核心组件减少重复代码，提高性能
 """
 import abc
-from utils import json, sanitize_unicode_string, sanitize_message
 import logging
 import sys
+import time
+import hashlib
 from typing import Dict, Any, Optional, AsyncGenerator, Tuple, List
 import httpx
 from fastapi import HTTPException
@@ -13,23 +15,18 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 from config_loader import BackendConfig
 from client_pool import client_pool
+from routers.core.response_converter import ResponseConverter
+from routers.core.cache_manager import ToolsCache, PromptCache
 
-# 导入流式日志处理器
-try:
-    from stream_logger import get_stream_logger
-    STREAM_LOGGER_AVAILABLE = True
-except ImportError:
-    STREAM_LOGGER_AVAILABLE = False
-    get_stream_logger = None
+# 导入智能日志处理器
+from smart_logger import get_smart_logger
+smart_logger = get_smart_logger()
 
 logger = logging.getLogger("smart_ollama_proxy.backend_router")
 
 
-
-
-
 class BackendRouter(abc.ABC):
-    """后端路由器抽象基类"""
+    """后端路由器抽象基类（重构版）"""
     
     def __init__(self, backend_config: BackendConfig, verbose_json_logging: bool = False,
                  tool_compression_enabled: bool = True, prompt_compression_enabled: bool = True):
@@ -37,19 +34,16 @@ class BackendRouter(abc.ABC):
         self.verbose_json_logging = verbose_json_logging
         self.tool_compression_enabled = tool_compression_enabled
         self.prompt_compression_enabled = prompt_compression_enabled
-        self._client: Optional[httpx.AsyncClient] = None  # 客户端实例，由子类初始化
-        # 增强工具列表缓存：session_id -> (tools_hash, compressed_tools, timestamp)
-        self._tools_cache: Dict[str, Tuple[str, List[Dict[str, Any]], float]] = {}
-        # 提示词压缩缓存：session_id -> {"benchmark_hash": str, "benchmark_content": str, "timestamp": float}
-        self._prompt_cache: Dict[str, Dict[str, Any]] = {}
-        # 缓存配置
-        self._cache_config = {
-            "tools_ttl": 300,  # 工具缓存TTL（秒）
-            "prompt_ttl": 300,  # 提示词缓存TTL（秒）
-            "max_cache_size": 100,  # 最大缓存条目数
-            "cleanup_interval": 30,  # 清理间隔（秒）
-        }
-        # 清理状态跟踪
+        
+        # 核心组件
+        self._response_converter = ResponseConverter()
+        self._tools_cache = ToolsCache(max_size=100, ttl=300)
+        self._prompt_cache = PromptCache(max_size=100, ttl=300)
+        
+        # HTTP客户端（延迟初始化）
+        self._client: Optional[httpx.AsyncClient] = None
+        
+        # 清理状态跟踪（向后兼容）
         self._last_tools_cleanup: float = 0.0
         self._last_prompt_cleanup: float = 0.0
     
@@ -71,9 +65,6 @@ class BackendRouter(abc.ABC):
     
     def _optimize_tools_in_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
         """优化请求中的工具列表，减少重复的工具定义"""
-        import hashlib
-        import time
-        
         if not self.tool_compression_enabled:
             return request_data
         
@@ -83,37 +74,26 @@ class BackendRouter(abc.ABC):
         
         # 获取session_id（如果存在）
         session_id = request_data.get("session_id", "default")
-        
-        # 计算工具列表的哈希值
         tools = request_data["tools"]
-        tools_str = json.dumps(tools, sort_keys=True)
-        tools_hash = hashlib.md5(tools_str.encode()).hexdigest()
         
-        # 检查缓存
-        current_time = time.time()
-        if session_id in self._tools_cache:
-            cached_hash, compressed_tools, timestamp = self._tools_cache[session_id]
-            
-            # 检查缓存是否过期
-            if current_time - timestamp < self._cache_config["tools_ttl"] and cached_hash == tools_hash:
-                logger.debug(f"[{self.__class__.__name__}] 工具列表缓存命中，session_id: {session_id}")
-                request_data["tools"] = compressed_tools
-                return request_data
+        # 使用缓存管理器检查缓存
+        cached_tools = self._tools_cache.get_compressed_tools(session_id, tools)
+        if cached_tools is not None:
+            logger.debug(f"[{self.__class__.__name__}] 工具列表缓存命中，session_id: {session_id}")
+            request_data["tools"] = cached_tools
+            return request_data
         
         # 压缩工具列表（去重）
         compressed_tools = self._compress_tools(tools)
         
         # 更新缓存
-        self._tools_cache[session_id] = (tools_hash, compressed_tools, current_time)
-        
-        # 清理过期缓存
-        self._cleanup_tools_cache()
-        
+        self._tools_cache.set_compressed_tools(session_id, tools, compressed_tools)
         request_data["tools"] = compressed_tools
         return request_data
     
     def _compress_tools(self, tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """压缩工具列表，去除重复的工具定义"""
+        from utils import json
         seen_tools = {}
         compressed = []
         
@@ -134,48 +114,8 @@ class BackendRouter(abc.ABC):
         
         return compressed
     
-    def _cleanup_tools_cache(self, force: bool = False):
-        """清理过期的工具缓存，支持条件清理
-        
-        Args:
-            force: 是否强制清理（忽略时间间隔）
-        """
-        import time
-        current_time = time.time()
-        
-        # 检查是否需要清理：超过最大缓存大小、强制清理、或超过清理间隔
-        needs_cleanup = force or len(self._tools_cache) > self._cache_config["max_cache_size"]
-        if not needs_cleanup and current_time - self._last_tools_cleanup < self._cache_config["cleanup_interval"]:
-            return
-        
-        # 更新最后清理时间
-        self._last_tools_cleanup = current_time
-        
-        # 清理过期条目
-        expired_sessions = []
-        for session_id, (_, _, timestamp) in self._tools_cache.items():
-            if current_time - timestamp >= self._cache_config["tools_ttl"]:
-                expired_sessions.append(session_id)
-        
-        for session_id in expired_sessions:
-            del self._tools_cache[session_id]
-        
-        # 如果缓存过大，清理最旧的条目
-        if len(self._tools_cache) > self._cache_config["max_cache_size"]:
-            # 按时间排序
-            sorted_sessions = sorted(
-                self._tools_cache.items(),
-                key=lambda x: x[1][2]  # 按时间戳排序
-            )
-            # 删除最旧的条目直到达到最大大小
-            for session_id, _ in sorted_sessions[:len(self._tools_cache) - self._cache_config["max_cache_size"]]:
-                del self._tools_cache[session_id]
-    
     def _optimize_prompt(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
         """优化请求中的提示词，减少重复的基准提示词"""
-        import hashlib
-        import time
-        
         if not self.prompt_compression_enabled:
             return request_data
         
@@ -196,72 +136,21 @@ class BackendRouter(abc.ABC):
         if not benchmark_content:
             return request_data
         
-        # 计算基准提示词的哈希值
-        benchmark_hash = hashlib.md5(benchmark_content.encode()).hexdigest()
-        
         # 检查缓存
-        current_time = time.time()
-        if session_id in self._prompt_cache:
-            cached_data = self._prompt_cache[session_id]
-            if (current_time - cached_data["timestamp"] < self._cache_config["prompt_ttl"] and 
-                cached_data["benchmark_hash"] == benchmark_hash):
-                logger.debug(f"[{self.__class__.__name__}] 提示词缓存命中，session_id: {session_id}")
-                
-                # 如果基准提示词相同，可以替换为简化的版本
-                # 这里我们保留原内容，但可以在日志中标记
-                if self.verbose_json_logging:
-                    logger.debug(f"[{self.__class__.__name__}] 重复的基准提示词已检测到，hash: {benchmark_hash}")
-                
-                return request_data
+        cached_prompt = self._prompt_cache.get_prompt(session_id, benchmark_content)
+        if cached_prompt is not None:
+            logger.debug(f"[{self.__class__.__name__}] 提示词缓存命中，session_id: {session_id}")
+            if self.verbose_json_logging:
+                logger.debug(f"[{self.__class__.__name__}] 重复的基准提示词已检测到")
+            return request_data
         
         # 更新缓存
-        self._prompt_cache[session_id] = {
-            "benchmark_hash": benchmark_hash,
+        prompt_info = {
             "benchmark_content": benchmark_content,
-            "timestamp": current_time
+            "timestamp": time.time()
         }
-        
-        # 清理过期缓存
-        self._cleanup_prompt_cache()
-        
+        self._prompt_cache.set_prompt(session_id, benchmark_content, prompt_info)
         return request_data
-    
-    def _cleanup_prompt_cache(self, force: bool = False):
-        """清理过期的提示词缓存，支持条件清理
-        
-        Args:
-            force: 是否强制清理（忽略时间间隔）
-        """
-        import time
-        current_time = time.time()
-        
-        # 检查是否需要清理：超过最大缓存大小、强制清理、或超过清理间隔
-        needs_cleanup = force or len(self._prompt_cache) > self._cache_config["max_cache_size"]
-        if not needs_cleanup and current_time - self._last_prompt_cleanup < self._cache_config["cleanup_interval"]:
-            return
-        
-        # 更新最后清理时间
-        self._last_prompt_cleanup = current_time
-        
-        # 清理过期条目
-        expired_sessions = []
-        for session_id, cache_data in self._prompt_cache.items():
-            if current_time - cache_data["timestamp"] >= self._cache_config["prompt_ttl"]:
-                expired_sessions.append(session_id)
-        
-        for session_id in expired_sessions:
-            del self._prompt_cache[session_id]
-        
-        # 如果缓存过大，清理最旧的条目
-        if len(self._prompt_cache) > self._cache_config["max_cache_size"]:
-            # 按时间排序
-            sorted_sessions = sorted(
-                self._prompt_cache.items(),
-                key=lambda x: x[1]["timestamp"]  # 按时间戳排序
-            )
-            # 删除最旧的条目直到达到最大大小
-            for session_id, _ in sorted_sessions[:len(self._prompt_cache) - self._cache_config["max_cache_size"]]:
-                del self._prompt_cache[session_id]
     
     async def _handle_stream_request(
         self,
@@ -272,8 +161,8 @@ class BackendRouter(abc.ABC):
         log_id: str = ""
     ) -> StreamingResponse:
         """处理流式请求的通用方法"""
-        import time
-
+        from utils import json
+        
         stream_start = time.time()
         logger.debug(f"[{self.__class__.__name__}._handle_stream_request] 开始流式请求: {url}")
         
@@ -310,16 +199,19 @@ class BackendRouter(abc.ABC):
                                 chunk_count, total_bytes, content_length, spinner_idx, log_id
                             )
                             
-                             # 记录输出流chunk（如果启用了流式日志）
-                            if STREAM_LOGGER_AVAILABLE and log_id and get_stream_logger is not None:
-                                stream_logger = get_stream_logger()
-                                stream_logger.log_output_stream(
-                                    chunk=chunk,
-                                    log_id=log_id,
-                                    router_name=self.__class__.__name__,
-                                    chunk_index=chunk_count,
-                                    total_bytes=total_bytes,
-                                    content_length=content_length
+                            # 记录输出流chunk（如果启用了流式日志）
+                            if log_id:
+                                smart_logger.data.record(
+                                    key="output_chunk",
+                                    value={
+                                        "chunk": chunk.decode('utf-8', errors='ignore') if isinstance(chunk, bytes) else chunk,
+                                        "summary": f"响应块 - 路由器: {self.__class__.__name__}, 日志ID: {log_id}, 块索引: {chunk_count}",
+                                        "router": self.__class__.__name__,
+                                        "log_id": log_id,
+                                        "chunk_index": chunk_count,
+                                        "total_bytes": total_bytes,
+                                        "content_length": content_length
+                                    }
                                 )
                             
                             # 不再打印每个chunk的详细JSON日志，使用stream_logger记录完整响应
@@ -336,9 +228,12 @@ class BackendRouter(abc.ABC):
                         logger.debug(f"[{self.__class__.__name__}._handle_stream_request] 流式请求完成 - 总块数: {chunk_count}, 总字节: {total_bytes}")
                     
                     # 结束流式会话，组装并打印完整JSON
-                    if STREAM_LOGGER_AVAILABLE and log_id and get_stream_logger is not None:
-                        stream_logger = get_stream_logger()
-                        stream_logger.end_stream(log_id)
+                    if log_id:
+                        smart_logger.process.info(
+                            f"流式会话结束 - 日志ID: {log_id}",
+                            log_id=log_id,
+                            event="stream_end"
+                        )
             except Exception as e:
                 logger.error(f"[{self.__class__.__name__}._handle_stream_request] 流式请求失败: {e}")
                 error_data = json.dumps({"error": str(e)})
@@ -357,7 +252,7 @@ class BackendRouter(abc.ABC):
         json_data: Dict[str, Any]
     ) -> JSONResponse:
         """处理JSON请求的通用方法"""
-        import time
+        from utils import json
         
         json_start = time.time()
         logger.debug(f"[{self.__class__.__name__}._handle_json_request] 开始JSON请求: {url}")
@@ -391,10 +286,8 @@ class BackendRouter(abc.ABC):
     def _print_stream_progress(self, chunk_count: int, total_bytes: int,
                                content_length: Optional[int] = None,
                                spinner_idx: int = 0, log_id: str = "") -> int:
-        """打印流式进度信息"""
-        spinner = ['|', '/', '-', '\\']
-        spinner_char = spinner[spinner_idx % len(spinner)]
-
+        """打印流式进度信息（使用ProgressBar）"""
+        # 格式化字节数
         def format_bytes(bytes_count: int) -> str:
             bytes_float = float(bytes_count)
             for unit in ['B', 'KB', 'MB', 'GB']:
@@ -404,33 +297,89 @@ class BackendRouter(abc.ABC):
             return f"{bytes_float:.1f}TB"
 
         formatted_bytes = format_bytes(total_bytes)
-
-        if content_length:
-            percent = (total_bytes / content_length) * 100
-            progress_msg = f"\r[{self.__class__.__name__}] 进度: {percent:.1f}% ({total_bytes}/{content_length} 字节) 块 #{chunk_count}"
-        else:
-            progress_msg = f"\r[{self.__class__.__name__}] {spinner_char} 已接收: {formatted_bytes}, 块 #{chunk_count}"
-
-        # 1. 使用流式日志处理器记录（如果可用） - 但log_stream_progress已改为空操作，不记录日志
-        if STREAM_LOGGER_AVAILABLE and log_id and get_stream_logger is not None:
-            stream_logger = get_stream_logger()
-            stream_logger.log_stream_progress(
-                log_id=log_id,
-                router_name=self.__class__.__name__,
-                chunk_count=chunk_count,
-                total_bytes=total_bytes,
-                content_length=content_length,
-                spinner_idx=spinner_idx
-            )
         
-        # 2. 总是输出控制台进度显示（保留前台进度）
-        sys.stdout.write(progress_msg)
-        sys.stdout.flush()
-
-        return (spinner_idx + 1) % len(spinner)
+        # 构建额外信息字符串
+        extra_info = f"({formatted_bytes}, 块: {chunk_count})"
+        
+        # 使用智能日志处理器的进度条功能
+        if log_id and hasattr(smart_logger, 'progress'):
+            try:
+                # 如果content_length已知，使用百分比进度条
+                if content_length and content_length > 0:
+                    # 创建或获取进度条
+                    if not hasattr(self, '_progress_bars'):
+                        self._progress_bars = {}
+                    
+                    if log_id not in self._progress_bars:
+                        # 创建新的进度条
+                        progress_bar = smart_logger.progress.create(
+                            total=content_length,
+                            description=f"[{self.__class__.__name__}] 接收中",
+                            bar_id=log_id
+                        )
+                        self._progress_bars[log_id] = progress_bar
+                    
+                    # 更新进度条
+                    progress_bar = self._progress_bars[log_id]
+                    if total_bytes > progress_bar.current:
+                        progress_bar.update(
+                            advance=total_bytes - progress_bar.current,
+                            extra_info=extra_info
+                        )
+                else:
+                    # 未知总大小，使用循环进度条
+                    if not hasattr(self, '_progress_bars'):
+                        self._progress_bars = {}
+                    
+                    if log_id not in self._progress_bars:
+                        # 创建total=0的进度条，触发循环模式
+                        progress_bar = smart_logger.progress.create(
+                            total=0,  # total=0触发循环模式
+                            description=f"[{self.__class__.__name__}] 接收中",
+                            bar_id=log_id
+                        )
+                        self._progress_bars[log_id] = progress_bar
+                    
+                    # 更新进度条（只更新额外信息，进度条会自动循环）
+                    progress_bar = self._progress_bars[log_id]
+                    progress_bar.update(advance=0, extra_info=extra_info)
+            except Exception as e:
+                # 如果进度条功能失败，回退到简单方法
+                logger.debug(f"进度条更新失败，回退到简单方法: {e}")
+                # 使用简单的单行更新
+                spinner = ['|', '/', '-', '\\']
+                spinner_char = spinner[spinner_idx % len(spinner)]
+                progress_msg = f"\r[{self.__class__.__name__}] {spinner_char} 已接收: {formatted_bytes}, 块: {chunk_count}"
+                sys.stdout.write(progress_msg)
+                sys.stdout.flush()
+                return (spinner_idx + 1) % 4
+        
+        # 如果没有log_id或进度条功能不可用，使用简单的单行更新
+        else:
+            if content_length:
+                percent = (total_bytes / content_length) * 100
+                progress_msg = f"\r[{self.__class__.__name__}] 进度: {percent:.1f}% {extra_info}"
+            else:
+                # 使用spinner显示进度
+                spinner = ['|', '/', '-', '\\']
+                spinner_char = spinner[spinner_idx % len(spinner)]
+                progress_msg = f"\r[{self.__class__.__name__}] {spinner_char} 已接收: {formatted_bytes}, 块: {chunk_count}"
+            
+            sys.stdout.write(progress_msg)
+            sys.stdout.flush()
+        
+        return (spinner_idx + 1) % 4 if not content_length else 0
 
     def _print_stream_complete(self, chunk_count: int, total_bytes: int, log_id: str = ""):
-        """打印流式完成信息"""
+        """打印流式完成信息（使用ProgressBar）"""
+        # 关闭进度条（如果存在）
+        if log_id and hasattr(self, '_progress_bars') and log_id in self._progress_bars:
+            try:
+                progress_bar = self._progress_bars.pop(log_id)
+                progress_bar.close()
+            except Exception as e:
+                logger.debug(f"关闭进度条失败: {e}")
+        
         def format_bytes(bytes_count: int) -> str:
             bytes_float = float(bytes_count)
             for unit in ['B', 'KB', 'MB', 'GB']:
@@ -442,18 +391,47 @@ class BackendRouter(abc.ABC):
         formatted_bytes = format_bytes(total_bytes)
         complete_msg = f"\r[{self.__class__.__name__}] 流式完成 ✓ 总块数: {chunk_count}, 总字节: {formatted_bytes}                          \n"
         
-        # 1. 使用流式日志处理器记录（如果可用）
-        if STREAM_LOGGER_AVAILABLE and log_id and get_stream_logger is not None:
-            stream_logger = get_stream_logger()
-            stream_logger.log_stream_complete(
-                log_id=log_id,
-                router_name=self.__class__.__name__,
-                chunk_count=chunk_count,
-                total_bytes=total_bytes
+        # 1. 使用智能日志处理器记录（如果可用）
+        if log_id:
+            smart_logger.performance.record(
+                key="stream_complete",
+                value={
+                    "metric": "stream_complete",
+                    "value": total_bytes,
+                    "unit": "bytes",
+                    "router": self.__class__.__name__,
+                    "log_id": log_id,
+                    "chunk_count": chunk_count,
+                    "total_bytes": total_bytes
+                }
             )
         
         # 2. 保持原有的控制台输出（向后兼容）
-        # 只有在流式日志处理器不可用或未启用时，才输出到控制台
-        if not STREAM_LOGGER_AVAILABLE or not log_id:
+        if not log_id:
             sys.stdout.write(complete_msg)
             sys.stdout.flush()
+    
+    # ==================== 新增辅助方法 ====================
+    
+    def _get_http_client(self) -> httpx.AsyncClient:
+        """获取HTTP客户端（从client_pool获取）"""
+        if self._client is None:
+            # 延迟初始化，由子类实现
+            raise NotImplementedError("子类需要实现HTTP客户端获取逻辑")
+        return self._client
+    
+    def _convert_to_ollama_format_default(self, response_data: Any, virtual_model: str) -> Dict[str, Any]:
+        """默认的Ollama格式转换实现（使用ResponseConverter）"""
+        return self._response_converter.convert_to_ollama_format(response_data, virtual_model)
+    
+    def _cleanup_caches(self):
+        """清理所有缓存（向后兼容）"""
+        self._tools_cache.cleanup()
+        self._prompt_cache.cleanup()
+        self._last_tools_cleanup = time.time()
+        self._last_prompt_cleanup = time.time()
+    
+    # ==================== 向后兼容的方法 ====================
+    
+    # 注意：_cleanup_tools_cache 和 _cleanup_prompt_cache 已移除，
+    # 请使用 _cleanup_caches 方法或直接访问 self._tools_cache.cleanup()

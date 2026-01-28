@@ -1,11 +1,13 @@
 """
 模拟后端路由器
 用于在没有真实后端时提供模拟响应
+重构版：使用基类组件减少重复代码
 """
 import logging
 import asyncio
 from utils import json
 import time
+import uuid
 from typing import Dict, Any
 
 from fastapi.responses import StreamingResponse, JSONResponse
@@ -14,23 +16,19 @@ from fastapi import HTTPException
 from config_loader import BackendConfig
 from .base_router import BackendRouter
 
-# 导入流式日志处理器
-try:
-    from stream_logger import get_stream_logger
-    STREAM_LOGGER_AVAILABLE = True
-except ImportError:
-    STREAM_LOGGER_AVAILABLE = False
-    get_stream_logger = None
+# 导入智能日志处理器
+from smart_logger import get_smart_logger
+smart_logger = get_smart_logger()
 
 logger = logging.getLogger("smart_ollama_proxy.backend_router")
 
 
 class MockBackendRouter(BackendRouter):
-    """模拟后端路由器，用于在没有真实后端时提供模拟响应"""
+    """模拟后端路由器，用于在没有真实后端时提供模拟响应（重构版）"""
     
-    def __init__(self, backend_config: BackendConfig,
+    def __init__(self, backend_config: BackendConfig, verbose_json_logging: bool = False,
                  tool_compression_enabled: bool = True, prompt_compression_enabled: bool = True):
-        super().__init__(backend_config,
+        super().__init__(backend_config, verbose_json_logging,  # type: ignore
                          tool_compression_enabled=tool_compression_enabled,
                          prompt_compression_enabled=prompt_compression_enabled)
         self.mock_responses = {
@@ -90,10 +88,7 @@ class MockBackendRouter(BackendRouter):
                 content_length = None
                 
                 # 生成日志ID（用于关联流式进度和完成日志）
-                log_id = ""
-                if STREAM_LOGGER_AVAILABLE and get_stream_logger is not None:
-                    stream_logger = get_stream_logger()
-                    log_id = stream_logger._generate_log_id()
+                log_id = uuid.uuid4().hex
                 
                 if response_type == "chat":
                     # OpenAI流式格式
