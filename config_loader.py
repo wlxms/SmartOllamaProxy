@@ -14,13 +14,73 @@ from smart_logger import LogConfig, LogType, LogLevel
 logger = logging.getLogger("smart_ollama_proxy.config")
 
 
+def deep_merge(default: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+    """深度合并两个字典，用户配置覆盖默认配置"""
+    if not isinstance(default, dict) or not isinstance(user, dict):
+        return user if user is not None else default
+    
+    merged = default.copy()
+    for key, value in user.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_env_file(env_path: str = ".env") -> None:
+    """加载.env文件到环境变量（简易实现）"""
+    if not os.path.exists(env_path):
+        logger.debug(f"未找到.env文件: {env_path}")
+        return
+    
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # 跳过空行和注释
+                if not line or line.startswith('#'):
+                    continue
+                # 解析键值对
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    # 移除值两端的引号
+                    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+                        value = value[1:-1]
+                    # 设置环境变量（如果尚未设置）
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+                        logger.debug(f"从.env文件设置环境变量: {key}")
+    except Exception as e:
+        logger.warning(f"加载.env文件失败: {e}")
+
+
+# 自动加载.env文件（如果存在）
+load_env_file()
+
+
 class BackendConfig:
     """后端配置"""
     
-    def __init__(self, config_data: Dict[str, Any], backend_mode: Optional[str] = None, proxy_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config_data: Dict[str, Any], backend_mode: Optional[str] = None, proxy_config: Optional[Dict[str, Any]] = None, model_group: Optional[str] = None):
         self.base_url = config_data.get("base_url", "")
         self.api_key = config_data.get("api_key", "")
         self.timeout = config_data.get("timeout", 30)
+        self.model_group = model_group
+        
+        # 环境变量覆盖：优先从环境变量读取API密钥
+        if self.model_group:
+            # 构建环境变量名：{模型组大写}_API_KEY
+            env_var_name = f"{self.model_group.upper().replace('-', '_')}_API_KEY"
+            env_api_key = os.environ.get(env_var_name)
+            if env_api_key and env_api_key.strip():
+                self.api_key = env_api_key.strip()
+                logger.debug(f"从环境变量 {env_var_name} 读取API密钥")
+            # 如果配置中的api_key是占位符，且环境变量不存在，可以记录警告
+            elif self.api_key and ("your-" in self.api_key or "***" in self.api_key):
+                logger.warning(f"API密钥是占位符，请设置环境变量 {env_var_name} 或直接修改配置")
         self.headers = config_data.get("headers", {})
         self.model_mapping = config_data.get("model_mapping", {})
         
@@ -88,7 +148,7 @@ class ModelConfig:
         for key, value in config_data.items():
             if key.endswith("_backend"):
                 backend_name = key
-                backend_config = BackendConfig(value, backend_mode=backend_name, proxy_config=self.proxy_config)
+                backend_config = BackendConfig(value, backend_mode=backend_name, proxy_config=self.proxy_config, model_group=self.model_group)
                 self.backends[backend_name] = backend_config
                 self.backend_order.append(backend_name)
     
@@ -154,8 +214,24 @@ class ConfigLoader:
                 logger.warning(f"配置文件不存在: {self.config_path}")
                 return False
             
+            # 加载主配置文件
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 self.config_data = yaml.safe_load(f)
+            
+            # 尝试加载本地配置文件（如果存在）
+            local_config_path = self._get_local_config_path()
+            if local_config_path and os.path.exists(local_config_path):
+                logger.info(f"检测到本地配置文件: {local_config_path}")
+                try:
+                    with open(local_config_path, 'r', encoding='utf-8') as f:
+                        local_config = yaml.safe_load(f)
+                    
+                    if local_config:
+                        # 深度合并：本地配置覆盖主配置
+                        self.config_data = deep_merge(self.config_data, local_config)
+                        logger.info("本地配置文件已合并到主配置")
+                except Exception as e:
+                    logger.warning(f"加载本地配置文件失败，跳过: {e}")
             
             # 加载各配置部分
             self.proxy_config = self.config_data.get("proxy", {})
@@ -398,18 +474,6 @@ class ConfigLoader:
         }
         
         # 深度合并配置：用户配置覆盖默认配置
-        def deep_merge(default, user):
-            if not isinstance(default, dict) or not isinstance(user, dict):
-                return user if user is not None else default
-            
-            merged = default.copy()
-            for key, value in user.items():
-                if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-                    merged[key] = deep_merge(merged[key], value)
-                else:
-                    merged[key] = value
-            return merged
-        
         return deep_merge(default_config, logging_config)
     
     def get_unified_logger_config(self) -> LogConfig:
@@ -455,6 +519,40 @@ class ConfigLoader:
                 if (backend_config.base_url == base_url and
                     backend_config.api_key == api_key):
                     return backend_config
+        
+        return None
+    
+    def _get_local_config_path(self) -> Optional[str]:
+        """
+        获取本地配置文件路径
+        
+        检查以下文件（按优先级顺序）：
+        1. config.local.yaml
+        2. config.personal.yaml
+        3. 当前目录下的任何 *.local.yaml 文件
+        
+        Returns:
+            本地配置文件路径，如果不存在则返回 None
+        """
+        import glob
+        
+        # 检查的路径列表（按优先级顺序）
+        candidate_paths = [
+            "config.local.yaml",
+            "config.personal.yaml",
+        ]
+        
+        # 检查当前目录下的所有 *.local.yaml 文件
+        local_yaml_files = glob.glob("*.local.yaml")
+        # 按文件名排序以确保一致性（排除已在候选列表中的文件）
+        for file_path in sorted(local_yaml_files):
+            if file_path not in candidate_paths:
+                candidate_paths.append(file_path)
+        
+        # 遍历候选路径，返回第一个存在的文件
+        for path in candidate_paths:
+            if os.path.exists(path):
+                return path
         
         return None
 
