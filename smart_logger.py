@@ -273,11 +273,9 @@ class ProgressBar:
         if extra_info is not None:
             self.extra_info = extra_info
         
-        # 控制更新频率，避免过度渲染（每100ms最多更新一次）
-        current_time = time.time()
-        if current_time - self.last_update_time >= 0.1:
-            self._render()
-            self.last_update_time = current_time
+        # 立即渲染，移除100ms限制，实现即时打印
+        self._render()
+        self.last_update_time = time.time()
     
     def _render(self) -> None:
         """渲染进度条到控制台"""
