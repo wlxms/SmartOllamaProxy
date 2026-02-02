@@ -6,19 +6,22 @@
 
 ## 🎯 项目概述
 
-Smart Ollama Proxy 是一个智能路由代理，为 GitHub Copilot 和其他 AI 客户端提供统一的模型访问接口。它能够将 Ollama API 请求智能路由到不同的 AI 模型后端，包括本地 Ollama 模型和多种云端 AI API（DeepSeek、OpenAI、Claude、Groq 等）。
+Smart Ollama Proxy 是一个智能路由代理，为 GitHub Copilot、Cursor 和其他 AI 客户端提供统一的模型访问接口。它能够将 Ollama API 请求智能路由到不同的 AI 模型后端，包括本地 Ollama 模型和多种云端 AI API（DeepSeek、OpenAI、Claude、Groq、硅基流动、通义千问等）。
 
 通过这个代理，您可以使用 GitHub Copilot、Cursor 或其他支持 Ollama 协议的客户端无缝访问数十种不同的 AI 模型，而无需修改客户端配置。
 
 ## ✨ 核心特性
 
-- **🔌 多模型支持**: 本地 Ollama 模型 + 云端 API（DeepSeek、OpenAI、Claude、Groq 等）
-- **⚙️ 智能路由**: 根据模型名称自动路由到合适的后端
-- **🔧 灵活配置**: YAML 配置，模型分组管理
+- **🔌 多模型支持**: 本地 Ollama 模型 + 云端 API（DeepSeek、硅基流动、通义千问、OpenAI、Claude、Groq 等）
+- **⚙️ 智能路由**: 根据模型名称自动路由到合适的后端，支持后端优先级和自动回退
+- **🔧 灵活配置**: YAML 配置 + 环境变量 + 本地配置文件，支持个人开发分支
 - **🎯 完全兼容**: 原生支持 Ollama REST API 和 OpenAI 兼容 API
 - **🚀 生产就绪**: 异步 FastAPI 框架，优雅的错误处理，Windows/Linux/macOS 支持
- - **🤖 GitHub Copilot 集成**: 无缝集成，支持所有模型
- - **🔧 LiteLLM 集成**: 可选集成 LiteLLM SDK，获得重试、回退、成本跟踪等高级功能
+- **📊 智能日志系统**: 支持流程、性能、数据、进度四种日志类型，异步处理，进度条显示
+- **⚡ 性能优化**: HTTP 客户端池复用、工具压缩、提示词压缩、HTTP 传输压缩
+- **🔄 模块化架构**: 后端路由器工厂 + 核心组件，易于扩展新的模型提供商
+- **🤖 GitHub Copilot 集成**: 无缝集成，支持所有模型
+- **🔧 LiteLLM 集成**: 可选集成 LiteLLM SDK，获得重试、回退、成本跟踪等高级功能
 
 ## 🚀 快速开始
 
@@ -34,41 +37,27 @@ cd smart_ollama_proxy
 ```
 
 ### 2. 安装依赖
-
-#### 方式一：使用 pip（推荐）
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 方式二：手动安装
-```bash
-pip install fastapi uvicorn httpx pydantic pyyaml
-```
-
 ### 3. 配置 API 密钥
 
-编辑 `config.yaml` 文件，将各后端的 `api_key` 替换为实际的 API 密钥：
-
-```yaml
-models:
-  deepseek:
-    openai_backend:
-      api_key: "sk-your-deepseek-api-key-here"
-  
-  openai:
-    openai_backend:
-      api_key: "sk-your-openai-api-key-here"
-  
-  claude:
-    openai_backend:
-      api_key: "sk-your-claude-api-key-here"
-  
-  groq:
-    openai_backend:
-      api_key: "sk-your-groq-api-key-here"
+#### 方式一：使用本地配置文件（推荐）
+```bash
+# 复制配置文件模板
+cp config.yaml config.local.yaml
+# 编辑 config.local.yaml，替换 API 密钥占位符
 ```
 
-> **注意**: 如果您只使用本地 Ollama 模型，可以跳过 API 密钥配置。
+#### 方式二：使用环境变量
+```bash
+# 复制环境变量模板
+cp .env.example .env
+# 编辑 .env 文件，设置 API 密钥
+```
+
+详细配置说明请参考 [PERSONAL_DEVELOPMENT.md](PERSONAL_DEVELOPMENT.md)。
 
 ### 4. 启动代理服务
 
@@ -100,7 +89,11 @@ uvicorn main:app --host 0.0.0.0 --port 11435 --reload
 
 ## ⚙️ 配置说明
 
-Smart Ollama Proxy 使用 YAML 格式的配置文件（`config.yaml`），以下是关键配置项：
+Smart Ollama Proxy 支持多层配置系统，优先级从高到低：
+
+1. **环境变量**（最高优先级）
+2. **本地配置文件** (`config.local.yaml`)
+3. **主配置文件** (`config.yaml`)
 
 ### 基础配置
 ```yaml
@@ -121,106 +114,151 @@ local_ollama:
   base_url: "http://localhost:11434"  # 本地 Ollama 服务地址
 ```
 
-### HTTP压缩配置
-Smart Ollama Proxy 支持 HTTP 传输压缩，可以显著减少网络传输数据量，提高国际 API 调用的速度。
+### 环境变量配置
+支持通过环境变量设置 API 密钥，环境变量名格式：`{模型组大写}_API_KEY`
+- DeepSeek: `DEEPSEEK_API_KEY`
+- 硅基流动: `SILICONFLOW_API_KEY`
+- 通义千问: `QWEN_API_KEY`
+- 通义千问Coder: `QWEN_CODER_API_KEY`
 
-**全局配置**：通过 `proxy.http_compression_enabled` 控制是否启用 HTTP 压缩（默认启用）。启用后，代理会在 HTTP 请求中添加 `Accept-Encoding: gzip, deflate, br` 头，并自动处理服务器的压缩响应。
-
-**后端级配置**：每个后端可以单独配置 `compression_enabled` 选项（默认继承全局设置）：
+### 模型配置示例
 ```yaml
 models:
   deepseek:
-    openai_backend:
+    description: "DeepSeek V3.2 系列模型"
+    available_models:
+      deepseek-chat:
+        context_length: 128000
+        embedding_length: 6400
+        capabilities: ["completion", "tools"]
+        actual_model: "deepseek-chat"
+      deepseek-reasoner:
+        context_length: 128000
+        embedding_length: 6400
+        capabilities: ["completion", "tools", "thinking"]
+        actual_model: "deepseek-reasoner"
+    
+    # 后端配置（按配置顺序决定优先级，如果前一个失败则尝试后一个）
+    litellm_backend:  # 优先级1
       base_url: "https://api.deepseek.com/v1"
       api_key: "sk-your-deepseek-api-key"
       timeout: 30
-      compression_enabled: true  # 是否启用HTTP压缩（默认true，继承全局proxy.http_compression_enabled）
-```
-
-**注意事项**：
-- 大多数 AI API（OpenAI、DeepSeek、Anthropic、Groq 等）都支持 gzip 压缩
-- 本地 Ollama 服务通常不支持压缩，但启用压缩不会导致错误
-- 压缩可以显著减少响应体积，特别是在长文本生成场景下
-- 监控日志中会显示客户端压缩启用状态（DEBUG 级别）
-
-### API 密钥配置
-```yaml
-models:
-  deepseek:
-    openai_backend:
-      api_key: "sk-your-deepseek-api-key"
-  
-  openai:
-    openai_backend:
-      api_key: "sk-your-openai-api-key"
-  
-   # 其他模型组类似配置
-```
-
-### LiteLLM 配置（可选）
-Smart Ollama Proxy 支持可选集成 [LiteLLM](https://github.com/BerriAI/litellm) SDK，提供更高级的功能如自动重试、回退、成本跟踪等。要启用 LiteLLM：
-
-1. 安装 LiteLLM：`pip install litellm`
-2. 在配置中添加 LiteLLM 参数：
-
-```yaml
-models:
-  deepseek:
-    openai_backend:
-      base_url: "https://api.deepseek.com/v1"
-      api_key: "sk-your-deepseek-api-key"
-      use_litellm: true  # 启用 LiteLLM（默认 true，如果已安装）
-      litellm_params:    # LiteLLM 专用参数
-        max_retries: 3   # 最大重试次数
-        cache: true      # 启用缓存
-        timeout: 30      # 超时时间
-```
-
-**注意**：如果未安装 `litellm` 包，系统会自动回退到标准的 HTTP 请求，不影响正常使用。
-
-### LiteLLM 专用后端配置
-从 v1.1 开始，Smart Ollama Proxy 支持独立的 `litellm_backend` 配置，专门用于 LiteLLM 集成：
-
-```yaml
-models:
-  deepseek:
-    # OpenAI兼容后端（使用OpenAI SDK + HTTP回退）
-    openai_backend:
-      base_url: "https://api.deepseek.com/v1"
-      api_key: "sk-your-deepseek-api-key"
-      # backend_type: "openai_sdk"  # 可选：openai_sdk, http, openai (默认自动检测)
+      max_retries: 3
+      cache: true
     
-    # LiteLLM专用后端
-    litellm_backend:
+    openai_backend:   # 优先级2
       base_url: "https://api.deepseek.com/v1"
       api_key: "sk-your-deepseek-api-key"
-      max_retries: 3   # LiteLLM专用参数
-      cache: true      # 启用缓存
-      timeout: 30      # 超时时间
+      timeout: 30
 ```
 
-**两种配置方式的区别**：
-1. **`openai_backend` + `use_litellm: true`**：兼容模式，优先使用 OpenAI SDK，失败回退 HTTP
-2. **`litellm_backend`**：专用模式，直接使用 LiteLLM SDK 处理所有请求
+## 📊 智能日志系统
 
-### 后端路由器架构
-Smart Ollama Proxy 使用模块化的后端路由器架构：
+Smart Ollama Proxy 采用统一的智能日志系统，支持四种日志类型：
 
-| 后端类型 | 路由器类 | 说明 |
-|---------|----------|------|
-| `openai_backend` | `OpenAIBackendRouter` | 优先使用 OpenAI Python SDK，失败时回退到 HTTP 请求 |
-| `litellm_backend` | `LiteLLMRouter` | 专门使用 LiteLLM SDK 处理请求 |
-| `openai_sdk` | `OpenAISDKBackendRouter` | 仅使用 OpenAI SDK（需要显式配置 `backend_type`） |
-| `ollama` | `OllamaBackendRouter` | 本地 Ollama 服务 |
-| `mock` | `MockBackendRouter` | 模拟后端，用于测试 |
+### 日志类型
+| 类型 | 用途 | 默认行为 |
+|------|------|----------|
+| **流程日志** (process) | 常规操作日志，记录程序运行状态 | 保存到文件，控制台显示，异步处理 |
+| **性能日志** (performance) | 性能监控，耗时统计，性能指标 | 保存到文件，控制台不显示，同步处理（需要即时性） |
+| **数据日志** (data) | 请求/响应数据统计 | 不保存到文件，控制台显示数据摘要，异步处理 |
+| **进度日志** (progress) | 循环滚动进度条显示 | 不保存到文件，控制台显示，同步处理（需要即时性） |
 
-**自动类型推断**：系统会根据配置的 `backend_mode`（如 `openai_backend`、`litellm_backend`）自动选择合适的路由器类型。
+### 配置示例
+```yaml
+logging:
+  enabled: true
+  log_dir: "logs"
+  log_level: "INFO"
+  
+  # 日志类型配置
+  log_types:
+    process:
+      enabled: true
+      save_to_file: true
+      show_in_console: true
+      async_mode: true
+    performance:
+      enabled: true
+      save_to_file: true
+      show_in_console: false
+      async_mode: false
+    data:
+      enabled: true
+      save_to_file: false
+      show_in_console: false
+      async_mode: true
+    progress:
+      enabled: true
+      save_to_file: false
+      show_in_console: true
+      async_mode: false
+```
 
-完整的配置示例请参考 `config.yaml` 文件。
+### 进度条显示
+系统支持在长时间操作时显示进度条，如：
+```
+处理中: [||||||||||          ] 50% (5.2s)
+```
+
+## 🏗️ 系统架构
+
+### 架构图
+```
+用户请求
+    ↓
+FastAPI 应用 (main.py)
+    ↓
+模型路由器 (config_loader.py)
+    ↓
+后端路由器工厂 (backend_router_factory.py)
+    ↓
+[openai_router | litellm_router | ollama_router | mock_router]
+    ↓
+核心组件 [cache_manager | client_manager | response_converter]
+    ↓
+HTTP客户端池 (client_pool.py)
+    ↓
+实际 API 调用
+```
+
+### 核心组件
+- **cache_manager.py**: 工具缓存和提示词缓存管理
+- **client_manager.py**: HTTP 客户端管理和健康检查
+- **response_converter.py**: 响应格式转换（Ollama ↔ OpenAI）
+- **client_pool.py**: HTTP 客户端池，复用相同配置的客户端
+
+## 🔄 后端路由器架构
+
+### 路由器类型
+| 路由器类 | 后端类型 | 说明 |
+|----------|----------|------|
+| `OpenAIBackendRouter` | `openai_backend` | OpenAI 兼容 API，优先使用 OpenAI SDK，失败回退 HTTP |
+| `LiteLLMRouter` | `litellm_backend` | 专门使用 LiteLLM SDK 处理请求 |
+| `OllamaBackendRouter` | `ollama` | 本地 Ollama 服务 |
+| `MockBackendRouter` | `mock` | 模拟后端，用于测试 |
+
+### 自动类型推断
+系统根据配置的 `backend_mode` 自动选择合适的路由器：
+- `openai_backend` → `OpenAIBackendRouter`
+- `litellm_backend` → `LiteLLMRouter`
+- 本地模型 → `OllamaBackendRouter`
+- 测试环境 → `MockBackendRouter`
+
+### 后端优先级与回退机制
+当模型组配置多个后端时，系统按照配置文件中的顺序决定优先级：
+1. 尝试第一个后端
+2. 如果失败（网络错误、认证失败、API限流等），自动尝试下一个后端
+3. 继续直到成功或所有后端都失败
+
+日志输出示例：
+```
+尝试后端 1/2: deepseek.openai_backend
+尝试后端 2/2: deepseek.litellm_backend
+✅ 后端 deepseek.litellm_backend 请求成功
+```
 
 ## 📡 API 接口
-
-Smart Ollama Proxy 提供两种主要的 API 接口：
 
 ### 🔌 Ollama 兼容 API
 完全兼容 Ollama 原生 API，支持所有标准端点：
@@ -256,110 +294,137 @@ curl -X POST http://localhost:11435/v1/chat/completions \
   }'
 ```
 
-### 模型命名约定
+### 支持的端点
+- `GET /api/tags` - 获取合并的模型列表（本地+虚拟）
+- `POST /api/generate` - Ollama 格式文本生成
+- `POST /v1/chat/completions` - OpenAI 格式聊天完成
+- `GET /api/version` - 获取版本信息
+- `POST /api/show` - 获取模型详细信息
+- `ANY /api/{path}` - 转发其他 Ollama API 请求
+- `GET /api/client-pool` - 查看 HTTP 客户端池状态
 
-Smart Ollama Proxy 支持两种模型命名格式：
+## ⚡ 性能优化
 
-1. **纯模型名**：`deepseek-chat`、`deepseek-reasoner`、`qwen3-max`
-2. **带组名的模型名**：`deepseek/deepseek-chat`、`deepseek/deepseek-reasoner`、`qwen/qwen3-max`
+### HTTP 客户端池
+为每个唯一的 `(base_url, api_key, http2)` 组合创建并复用单个 `httpx.AsyncClient` 实例，显著提高连接复用率，减少资源消耗。
 
-两种格式完全兼容，系统会自动处理。带组名的格式有助于明确指定模型组，避免歧义。
+### 工具压缩优化
+检测重复的工具列表并压缩，减少请求体积：
+- 相同工具列表只发送一次
+- 后续请求引用工具 ID
+- 显著减少包含大量工具的请求体积
 
-### 常用模型示例
+### 提示词压缩优化
+从内容头开始比对与上次内容，将重复部分替换为标记：
+- 识别并标记重复的提示词前缀
+- 减少重复传输相同内容
+- 特别适合对话式应用的连续请求
 
-| 模型 | 类型 | API 端点 | 用途 |
-|------|------|----------|------|
-| `deepseek-chat` 或 `deepseek/deepseek-chat` | 聊天模型 | `/api/chat` 或 `/v1/chat/completions` | 通用对话、代码生成 |
-| `deepseek-reasoner` 或 `deepseek/deepseek-reasoner` | 推理模型 | `/api/generate` | 复杂问题推理 |
-| `gpt-4o` | 智能模型 | `/v1/chat/completions` | 高质量回答、编程辅助 |
-| `claude-3-5-sonnet` | 智能模型 | `/v1/chat/completions` | 创意写作、分析 |
-| `llama3.2:latest` | 本地模型 | `/api/generate` | 本地推理、测试 |
-| `llama-3.3-70b` | 高速推理 | `/v1/chat/completions` | 快速响应、对话 |
+### HTTP 传输压缩
+启用 HTTP 请求的 `Accept-Encoding: gzip, deflate, br` 头，自动处理服务器压缩响应：
+- 显著减少网络传输数据量
+- 提高国际 API 调用的速度
+- 支持全局和后端级配置
 
-## 🔧 扩展性
-
-Smart Ollama Proxy 采用模块化设计，易于扩展新的模型提供商。
-
-### 🏗️ 系统架构
-
-```
-用户请求 → FastAPI 应用 → 模型路由器 → 后端路由器 → 实际 API 调用
-```
-
-- **模块化设计**: 通过插件化方式添加新模型提供商
-- **标准接口**: 统一的后端路由器接口
-- **配置驱动**: 通过配置文件轻松添加新模型
-
-当前支持的后端类型：
-- **openai_backend**: OpenAI 兼容 API（DeepSeek、OpenAI、Claude、Groq 等）
-- **ollama**: 本地 Ollama 服务
-- **mock**: 模拟后端（用于测试）
-
-### 🔄 后端优先级与回退机制
-
-Smart Ollama Proxy 支持后端优先级配置和自动回退机制。当模型组配置多个后端时，系统会按照配置文件中的顺序决定优先级，如果前一个后端失败会自动尝试下一个。
-
-#### 配置示例
-
-```yaml
-models:
-  deepseek:
-    description: "DeepSeek V3.2 系列模型"
-    available_models:
-      deepseek-chat:
-        context_length: 128000
-        capabilities: ["completion", "tools"]
-        actual_model: "deepseek-chat"
-    
-    # 后端配置（按配置顺序决定优先级，如果前一个失败则尝试后一个）
-    # OpenAI兼容后端配置（优先级1）
-    openai_backend:
-      base_url: "https://api.deepseek.com/v1"
-      api_key: "sk-your-deepseek-api-key"
-      timeout: 30
-    
-    # LiteLLM兼容后端配置（优先级2）
-    litellm_backend:
-      base_url: "https://api.deepseek.com/v1"
-      api_key: "sk-your-deepseek-api-key"
-      timeout: 30
-      max_retries: 3
-      cache: true
-```
-
-#### 工作原理
-
-1. **优先级顺序**：YAML 配置文件中后端配置的书写顺序决定优先级
-2. **自动回退**：当请求失败（网络错误、认证失败、API限流等）时自动尝试下一个后端
-3. **路由器复用**：相同配置的后端共享路由器实例，避免重复创建
-4. **兼容性**：现有 API 完全兼容，可通过 `backend_mode` 参数指定特定后端
-
-#### 日志输出示例
-
-当启用调试日志时，系统会显示回退过程：
-
-```
-尝试后端 1/2: deepseek.openai_backend
-尝试后端 2/2: deepseek.litellm_backend
-✅ 后端 deepseek.litellm_backend 请求成功
-```
-
-#### 使用建议
-
-- **高可用配置**：为关键模型配置多个后端，提高系统可用性
-- **优先级规划**：将性能更好、成本更低的后端配置在前
-- **测试验证**：使用 `test_priority_fallback.py` 测试优先级和回退逻辑
-
-### 📁 项目文件结构
+## 📁 项目文件结构
 
 ```
 smart_ollama_proxy/
-├── 🧪 test_api.py              # API 测试脚本
-├── 🧪 test_mock.py             # 模拟后端测试
-├── 🧪 test_refactor.py         # 重构测试脚本
-├── 🧪 test_priority_fallback.py # 后端优先级和回退测试
-└── 🧪 test_litellm_integration.py # LiteLLM集成测试
+├── 🚀 核心文件
+│   ├── main.py                    # FastAPI 应用入口点
+│   ├── config.yaml               # 主配置文件
+│   ├── config.local.example.yml   # 本地配置文件示例
+│   ├── config_loader.py          # 配置加载、模型路由、环境变量支持
+│   ├── client_pool.py            # HTTP 客户端池管理
+│   ├── smart_logger.py           # 智能统一日志系统
+│   ├── utils.py                  # 工具函数（JSON 处理、Unicode 清理）
+│   ├── requirements.txt          # Python 依赖
+│   ├── run.bat                   # Windows 启动脚本
+│   ├── README.md                 # 本文档
+│   ├── AGENTS.md                 # AI 代理开发指南
+│   └── PERSONAL_DEVELOPMENT.md   # 个人开发分支使用指南
+│
+├── 🛠️ 路由器模块 (routers/)
+│   ├── __init__.py
+│   ├── base_router.py            # 后端路由器抽象基类
+│   ├── backend_router_factory.py # 后端路由器工厂
+│   ├── openai_router.py          # OpenAI 兼容 API 路由器
+│   ├── litellm_router.py         # LiteLLM SDK 路由器
+│   ├── ollama_router.py          # 本地 Ollama 路由器
+│   ├── mock_router.py            # 模拟路由器（测试用）
+│   └── core/                     # 核心组件
+│       ├── __init__.py
+│       ├── cache_manager.py      # 工具和提示词缓存管理
+│       ├── client_manager.py     # HTTP 客户端管理
+│       └── response_converter.py # 响应格式转换器
+│
+├── 🧪 测试文件 (tests/)
+│   ├── test_api.py              # API 端点测试
+│   ├── test_client_pool.py      # 客户端池测试
+│   ├── test_litellm_integration.py # LiteLLM 集成测试
+│   ├── test_litellm_serialization.py # LiteLLM 序列化测试
+│   ├── test_mock.py             # 模拟后端测试
+│   ├── test_new_architecture.py # 新架构测试
+│   ├── test_priority_fallback.py # 后端优先级和回退测试
+│   ├── test_refactor.py         # 重构测试
+│   └── verify_fixes.py          # 修复验证测试
+│
+├── 📊 日志目录 (logs/)           # 日志文件存储目录
+├── 🔧 配置文件
+│   ├── .env.example             # 环境变量示例文件
+│   └── .gitignore               # Git 忽略文件配置
+└── 🛠️ 开发工具
+    ├── test_logger_fix.py       # 日志修复测试
+    ├── test_new_progressbar.py  # 新进度条测试
+    └── test_progressbar.py      # 进度条测试
 ```
+
+## 🔧 开发指南
+
+### 个人开发分支
+项目支持个人开发分支，允许开发者使用自己的 API 密钥而不影响主配置：
+1. 创建 `config.local.yaml` 文件
+2. 仅覆盖需要的配置部分
+3. 配置文件被 `.gitignore` 排除，不会提交到版本控制
+
+详细指南请参考 [PERSONAL_DEVELOPMENT.md](PERSONAL_DEVELOPMENT.md)。
+
+### 运行测试
+```bash
+# 运行所有测试
+python -m pytest tests/ -v
+
+# 运行特定测试文件
+python -m pytest tests/test_api.py -v
+
+# 运行单个测试函数
+python -m pytest tests/test_api.py::test_api_endpoints -v
+
+# 带覆盖率测试
+python -m pytest tests/ --cov=. --cov-report=html
+```
+
+### 代码规范
+- 遵循 PEP 8 编码规范
+- 使用类型注解（Python 3.7+）
+- 为新功能添加测试
+- 更新相关文档
+
+### 添加新的模型提供商
+1. 在 `config.yaml` 中添加新的模型组配置
+2. 根据需要添加新的路由器实现（可选）
+3. 更新 `config_loader.py` 中的模型路由逻辑
+4. 添加相应的测试用例
+
+## 📊 支持的模型提供商
+
+- **DeepSeek**: deepseek-chat, deepseek-reasoner（支持 thinking 能力）
+- **硅基流动**: deepseek-ai/DeepSeek-V3.2
+- **通义千问**: qwen3-max, qwen3-coder-flash, qwen3-coder-plus
+- **OpenAI**: gpt-4o, gpt-4o-mini, gpt-3.5-turbo（需取消注释配置）
+- **Anthropic**: claude-3-5-sonnet, claude-3-opus（需取消注释配置）
+- **Groq**: llama-3.3-70b, mixtral-8x7b（需取消注释配置）
+- **本地 Ollama**: 支持所有 Ollama 模型
 
 ## ❗ 常见问题
 
@@ -369,13 +434,14 @@ smart_ollama_proxy/
 - **验证文件编码**: 使用 UTF-8 编码
 
 ### 2. API 请求失败
-- **检查 API 密钥**: 确保配置正确
+- **检查 API 密钥**: 确保配置正确或环境变量已设置
 - **检查网络连接**: 确保可以访问对应的 API 服务
 - **查看详细日志**: 在配置文件中设置 `log_level: "DEBUG"`
 
 ### 3. 模型未找到
 - **检查模型列表**: `curl http://localhost:11435/api/tags`
 - **验证模型配置**: 检查 `config.yaml` 中的模型配置
+- **检查模型组名称**: 确保请求的模型属于已配置的模型组
 
 ### 4. 本地 Ollama 连接失败
 - **检查 Ollama 服务**: 运行 `curl http://localhost:11434/api/tags`
@@ -391,32 +457,7 @@ smart_ollama_proxy/
 - **启用调试日志**: 在配置文件中设置 `log_level: "DEBUG"`
 - **检查服务状态**: `curl http://localhost:11435/health`
 - **验证模型列表**: `curl http://localhost:11435/api/tags`
-
-## 📁 项目文件结构
-
-```
-smart_ollama_proxy/
-├── main.py                    # 主应用入口，FastAPI 应用
-├── config.yaml               # 主配置文件
-├── config_loader.py          # 配置加载、模型路由
-├── backend_router.py         # 后端路由器系统
-├── requirements.txt          # Python 依赖
-├── README.md                 # 本文档
-├── run.bat                   # Windows 启动脚本
-├── test_api.py              # API 测试脚本
-├── test_mock.py             # 模拟后端测试
-├── test_refactor.py         # 重构测试脚本
-├── test_priority_fallback.py # 后端优先级和回退测试
-└── test_litellm_integration.py # LiteLLM集成测试
-```
-
-## 📊 支持的模型提供商
-
-- **DeepSeek**: deepseek-chat, deepseek-reasoner（支持 thinking 能力）
-- **OpenAI**: gpt-4o, gpt-4o-mini, gpt-3.5-turbo
-- **Anthropic**: claude-3-5-sonnet, claude-3-opus
-- **Groq**: llama-3.3-70b, mixtral-8x7b（高速推理）
-- **本地 Ollama**: 支持所有 Ollama 模型
+- **查看客户端池状态**: `curl http://localhost:11435/api/client-pool`
 
 ## 📜 许可证
 
@@ -465,6 +506,13 @@ SOFTWARE.
 感谢以下项目和工具的支持：
 - [FastAPI](https://fastapi.tiangolo.com/) - 现代、快速的 Web 框架
 - [Ollama](https://ollama.com/) - 本地 AI 模型运行平台
-- [OpenAI API](https://platform.openai.com/) - 云端 AI 模型服务
+- [httpx](https://www.python-httpx.org/) - 下一代 Python HTTP 客户端
+- [Pydantic](https://docs.pydantic.dev/) - 数据验证和设置管理
+- [LiteLLM](https://github.com/BerriAI/litellm) - 统一 AI API 调用库
 - [DeepSeek](https://platform.deepseek.com/) - 优质的 AI 模型提供商
 - [GitHub Copilot](https://github.com/features/copilot) - AI 编程助手
+- [通义千问](https://tongyi.aliyun.com/) - 阿里云 AI 模型服务
+- [硅基流动](https://siliconflow.cn/) - 国内 AI 模型服务平台
+
+---
+**💡 提示**: 更多技术细节和开发指南请参考 [AGENTS.md](AGENTS.md) 和 [PERSONAL_DEVELOPMENT.md](PERSONAL_DEVELOPMENT.md)。
