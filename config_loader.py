@@ -14,6 +14,20 @@ from smart_logger import LogConfig, LogType, LogLevel
 logger = logging.getLogger("smart_ollama_proxy.config")
 
 
+def deep_merge(default: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+    """深度合并两个字典，用户配置覆盖默认配置"""
+    if not isinstance(default, dict) or not isinstance(user, dict):
+        return user if user is not None else default
+    
+    merged = default.copy()
+    for key, value in user.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def load_env_file(env_path: str = ".env") -> None:
     """加载.env文件到环境变量（简易实现）"""
     if not os.path.exists(env_path):
@@ -200,8 +214,24 @@ class ConfigLoader:
                 logger.warning(f"配置文件不存在: {self.config_path}")
                 return False
             
+            # 加载主配置文件
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 self.config_data = yaml.safe_load(f)
+            
+            # 尝试加载本地配置文件（如果存在）
+            local_config_path = self._get_local_config_path()
+            if local_config_path and os.path.exists(local_config_path):
+                logger.info(f"检测到本地配置文件: {local_config_path}")
+                try:
+                    with open(local_config_path, 'r', encoding='utf-8') as f:
+                        local_config = yaml.safe_load(f)
+                    
+                    if local_config:
+                        # 深度合并：本地配置覆盖主配置
+                        self.config_data = deep_merge(self.config_data, local_config)
+                        logger.info("本地配置文件已合并到主配置")
+                except Exception as e:
+                    logger.warning(f"加载本地配置文件失败，跳过: {e}")
             
             # 加载各配置部分
             self.proxy_config = self.config_data.get("proxy", {})
@@ -444,18 +474,6 @@ class ConfigLoader:
         }
         
         # 深度合并配置：用户配置覆盖默认配置
-        def deep_merge(default, user):
-            if not isinstance(default, dict) or not isinstance(user, dict):
-                return user if user is not None else default
-            
-            merged = default.copy()
-            for key, value in user.items():
-                if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-                    merged[key] = deep_merge(merged[key], value)
-                else:
-                    merged[key] = value
-            return merged
-        
         return deep_merge(default_config, logging_config)
     
     def get_unified_logger_config(self) -> LogConfig:
@@ -501,6 +519,40 @@ class ConfigLoader:
                 if (backend_config.base_url == base_url and
                     backend_config.api_key == api_key):
                     return backend_config
+        
+        return None
+    
+    def _get_local_config_path(self) -> Optional[str]:
+        """
+        获取本地配置文件路径
+        
+        检查以下文件（按优先级顺序）：
+        1. config.local.yaml
+        2. config.personal.yaml
+        3. 当前目录下的任何 *.local.yaml 文件
+        
+        Returns:
+            本地配置文件路径，如果不存在则返回 None
+        """
+        import glob
+        
+        # 检查的路径列表（按优先级顺序）
+        candidate_paths = [
+            "config.local.yaml",
+            "config.personal.yaml",
+        ]
+        
+        # 检查当前目录下的所有 *.local.yaml 文件
+        local_yaml_files = glob.glob("*.local.yaml")
+        # 按文件名排序以确保一致性（排除已在候选列表中的文件）
+        for file_path in sorted(local_yaml_files):
+            if file_path not in candidate_paths:
+                candidate_paths.append(file_path)
+        
+        # 遍历候选路径，返回第一个存在的文件
+        for path in candidate_paths:
+            if os.path.exists(path):
+                return path
         
         return None
 
