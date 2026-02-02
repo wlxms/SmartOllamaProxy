@@ -195,8 +195,14 @@ class ModelConfig:
 class ConfigLoader:
     """配置加载器"""
     
-    def __init__(self, config_path: str = "config.yaml"):
+    def __init__(self, config_path: str = "config.yaml", config_mode: str = "auto"):
         self.config_path = config_path
+        # 优先使用参数，其次使用环境变量，默认auto
+        env_config_mode = os.environ.get("CONFIG_MODE", "").lower()
+        if config_mode == "auto" and env_config_mode in ("local", "global", "auto"):
+            self.config_mode = env_config_mode
+        else:
+            self.config_mode = config_mode.lower()  # auto, local, global
         self.config_data: Dict[str, Any] = {}
         self.models: Dict[str, ModelConfig] = {}
         self.routing_config: Dict[str, Any] = {}
@@ -206,32 +212,64 @@ class ConfigLoader:
         self._model_config_cache: Dict[str, Optional[Tuple[ModelConfig, str]]] = {}
         # 模型名到模型组的映射（性能优化：快速查找）
         self._model_to_group_map: Dict[str, str] = {}
+        logger.info(f"配置模式: {self.config_mode}")
         
     def load(self) -> bool:
         """加载配置文件"""
         try:
-            if not os.path.exists(self.config_path):
-                logger.warning(f"配置文件不存在: {self.config_path}")
-                return False
-            
-            # 加载主配置文件
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                self.config_data = yaml.safe_load(f)
-            
-            # 尝试加载本地配置文件（如果存在）
+            # 获取本地配置文件路径
             local_config_path = self._get_local_config_path()
-            if local_config_path and os.path.exists(local_config_path):
-                logger.info(f"检测到本地配置文件: {local_config_path}")
-                try:
-                    with open(local_config_path, 'r', encoding='utf-8') as f:
-                        local_config = yaml.safe_load(f)
-                    
-                    if local_config:
-                        # 深度合并：本地配置覆盖主配置
-                        self.config_data = deep_merge(self.config_data, local_config)
-                        logger.info("本地配置文件已合并到主配置")
-                except Exception as e:
-                    logger.warning(f"加载本地配置文件失败，跳过: {e}")
+            local_config_exists = local_config_path and os.path.exists(local_config_path)
+            
+            logger.info(f"配置模式: {self.config_mode}")
+            
+            if self.config_mode == "global":
+                logger.info("全局模式 - 只加载全局配置文件")
+                # 只加载全局配置文件
+                if not os.path.exists(self.config_path):
+                    logger.warning(f"全局配置文件不存在: {self.config_path}")
+                    return False
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    self.config_data = yaml.safe_load(f) or {}
+                logger.info(f"已加载全局配置文件: {self.config_path}")
+                
+            elif self.config_mode == "local":
+                logger.info("本地模式 - 只加载本地配置文件")
+                if not local_config_exists:
+                    logger.error(f"本地配置文件不存在: {local_config_path or '未找到'}")
+                    return False
+                # 确保local_config_path不是None（已经检查过存在性）
+                assert local_config_path is not None
+                with open(local_config_path, 'r', encoding='utf-8') as f:
+                    self.config_data = yaml.safe_load(f) or {}
+                logger.info(f"已加载本地配置文件: {local_config_path}")
+                
+            else:  # auto 模式
+                logger.info("自动模式 - 合并全局和本地配置")
+                # 先加载全局配置
+                if not os.path.exists(self.config_path):
+                    logger.warning(f"全局配置文件不存在: {self.config_path}")
+                    return False
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    self.config_data = yaml.safe_load(f) or {}
+                logger.info(f"已加载全局配置文件: {self.config_path}")
+                
+                # 如果存在本地配置文件，合并它
+                if local_config_exists:
+                    logger.info(f"检测到本地配置文件: {local_config_path}")
+                    try:
+                        assert local_config_path is not None
+                        with open(local_config_path, 'r', encoding='utf-8') as f:
+                            local_config = yaml.safe_load(f)
+                        
+                        if local_config:
+                            # 深度合并：本地配置覆盖主配置
+                            self.config_data = deep_merge(self.config_data, local_config)
+                            logger.info("本地配置文件已合并到主配置")
+                    except Exception as e:
+                        logger.warning(f"加载本地配置文件失败，跳过: {e}")
+                else:
+                    logger.info("未找到本地配置文件，仅使用全局配置")
             
             # 加载各配置部分
             self.proxy_config = self.config_data.get("proxy", {})
@@ -529,21 +567,24 @@ class ConfigLoader:
         检查以下文件（按优先级顺序）：
         1. config.local.yaml
         2. config.personal.yaml
-        3. 当前目录下的任何 *.local.yaml 文件
+        3. 配置文件所在目录下的任何 *.local.yaml 文件
         
         Returns:
             本地配置文件路径，如果不存在则返回 None
         """
         import glob
         
+        # 获取配置文件所在目录
+        config_dir = os.path.dirname(self.config_path) or "."
+        
         # 检查的路径列表（按优先级顺序）
         candidate_paths = [
-            "config.local.yaml",
-            "config.personal.yaml",
+            os.path.join(config_dir, "config.local.yaml"),
+            os.path.join(config_dir, "config.personal.yaml"),
         ]
         
-        # 检查当前目录下的所有 *.local.yaml 文件
-        local_yaml_files = glob.glob("*.local.yaml")
+        # 检查配置文件所在目录下的所有 *.local.yaml 文件
+        local_yaml_files = glob.glob(os.path.join(config_dir, "*.local.yaml"))
         # 按文件名排序以确保一致性（排除已在候选列表中的文件）
         for file_path in sorted(local_yaml_files):
             if file_path not in candidate_paths:
