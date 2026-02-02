@@ -14,13 +14,59 @@ from smart_logger import LogConfig, LogType, LogLevel
 logger = logging.getLogger("smart_ollama_proxy.config")
 
 
+def load_env_file(env_path: str = ".env") -> None:
+    """加载.env文件到环境变量（简易实现）"""
+    if not os.path.exists(env_path):
+        logger.debug(f"未找到.env文件: {env_path}")
+        return
+    
+    try:
+        with open(env_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # 跳过空行和注释
+                if not line or line.startswith('#'):
+                    continue
+                # 解析键值对
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    # 移除值两端的引号
+                    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+                        value = value[1:-1]
+                    # 设置环境变量（如果尚未设置）
+                    if key and key not in os.environ:
+                        os.environ[key] = value
+                        logger.debug(f"从.env文件设置环境变量: {key}")
+    except Exception as e:
+        logger.warning(f"加载.env文件失败: {e}")
+
+
+# 自动加载.env文件（如果存在）
+load_env_file()
+
+
 class BackendConfig:
     """后端配置"""
     
-    def __init__(self, config_data: Dict[str, Any], backend_mode: Optional[str] = None, proxy_config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config_data: Dict[str, Any], backend_mode: Optional[str] = None, proxy_config: Optional[Dict[str, Any]] = None, model_group: Optional[str] = None):
         self.base_url = config_data.get("base_url", "")
         self.api_key = config_data.get("api_key", "")
         self.timeout = config_data.get("timeout", 30)
+        self.model_group = model_group
+        
+        # 环境变量覆盖：优先从环境变量读取API密钥
+        if self.model_group:
+            # 构建环境变量名：{模型组大写}_API_KEY
+            env_var_name = f"{self.model_group.upper().replace('-', '_')}_API_KEY"
+            env_api_key = os.environ.get(env_var_name)
+            if env_api_key and env_api_key.strip():
+                self.api_key = env_api_key.strip()
+                logger.debug(f"从环境变量 {env_var_name} 读取API密钥")
+            # 如果配置中的api_key是占位符，且环境变量不存在，可以记录警告
+            elif self.api_key and ("your-" in self.api_key or "***" in self.api_key):
+                logger.warning(f"API密钥是占位符，请设置环境变量 {env_var_name} 或直接修改配置")
         self.headers = config_data.get("headers", {})
         self.model_mapping = config_data.get("model_mapping", {})
         
@@ -88,7 +134,7 @@ class ModelConfig:
         for key, value in config_data.items():
             if key.endswith("_backend"):
                 backend_name = key
-                backend_config = BackendConfig(value, backend_mode=backend_name, proxy_config=self.proxy_config)
+                backend_config = BackendConfig(value, backend_mode=backend_name, proxy_config=self.proxy_config, model_group=self.model_group)
                 self.backends[backend_name] = backend_config
                 self.backend_order.append(backend_name)
     
